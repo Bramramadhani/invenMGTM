@@ -1,0 +1,311 @@
+@extends('layouts.master', ['title' => 'Buat Permintaan Barang'])
+
+@section('content')
+<div class="container">
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">Buat Permintaan Barang</h4>
+    <a href="{{ route('admin.orders.index') }}" class="btn btn-secondary">
+      <i class="fas fa-arrow-left"></i> Kembali
+    </a>
+  </div>
+
+  @if ($errors->any())
+    <div class="alert alert-danger">
+      <div class="fw-bold mb-1">Periksa kembali isian Anda:</div>
+      <ul class="mb-0">@foreach ($errors->all() as $e) <li>{{ $e }}</li> @endforeach</ul>
+    </div>
+  @endif
+
+  <form method="post" action="{{ route('admin.orders.store') }}" id="orderForm" novalidate>
+    @csrf
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Supplier <span class="text-danger">*</span></label>
+            <select id="supplierSelect" class="form-select" required>
+              <option value="">— Pilih Supplier —</option>
+              @foreach ($suppliers as $s)
+                <option value="{{ $s->id }}">{{ $s->name }}</option>
+              @endforeach
+            </select>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">No. PO <span class="text-danger">*</span></label>
+            <select id="poSelect" class="form-select" disabled required>
+              <option value="">— Pilih PO —</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {{-- Tabel stok per-PO --}}
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Stok Tersedia (per-PO)</strong>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="btnClear">
+            <i class="fas fa-eraser"></i> Bersihkan
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-primary" id="btnSelectAll">
+            <i class="fas fa-check-double"></i> Pilih Semua
+          </button>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-bordered align-middle mb-0" id="stocksTable">
+            <thead class="table-light">
+              <tr>
+                <th style="width:40px" class="text-center">
+                  <input type="checkbox" id="chkHeader" />
+                </th>
+                <th style="width:160px">Kode</th>
+                <th>Material</th>
+                <th style="width:100px">Unit</th>
+                <th>Supplier</th>
+                <th style="width:160px" class="text-end">Tersedia</th>
+                <th style="width:180px" class="text-end">Qty Diminta</th>
+                <th style="width:260px">Catatan Item</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{-- baris diisi via JS --}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {{-- Ringkasan pilihan --}}
+      <div class="card-footer d-flex justify-content-between align-items-center">
+        <div class="text-muted small">
+          Dipilih: <span id="selCount">0</span> item • Total Qty: <span id="selTotal">0</span>
+        </div>
+        <div>
+          <button class="btn btn-primary" id="btnSubmit">
+            <i class="fas fa-save"></i> Simpan Permintaan
+          </button>
+          <a href="{{ route('admin.orders.index') }}" class="btn btn-outline-secondary ms-2">Batal</a>
+        </div>
+      </div>
+    </div>
+  </form>
+</div>
+
+{{-- URL template untuk AJAX (akan direplace __ID__) --}}
+<input type="hidden" id="urlSupplierPOs" value="{{ route('admin.orders.supplier-pos', ['supplier' => '__ID__']) }}">
+<input type="hidden" id="urlPOStocks"    value="{{ route('admin.orders.po-stocks',   ['purchaseOrder' => '__ID__']) }}">
+
+@push('js')
+<script>
+(function(){
+  const supplierSelect = document.getElementById('supplierSelect');
+  const poSelect       = document.getElementById('poSelect');
+  const tblBody        = document.querySelector('#stocksTable tbody');
+  const chkHeader      = document.getElementById('chkHeader');
+  const btnSelectAll   = document.getElementById('btnSelectAll');
+  const btnClear       = document.getElementById('btnClear');
+  const form           = document.getElementById('orderForm');
+
+  const urlSupplierPOsTpl = document.getElementById('urlSupplierPOs').value;
+  const urlPOStocksTpl    = document.getElementById('urlPOStocks').value;
+
+  const selCountEl = document.getElementById('selCount');
+  const selTotalEl = document.getElementById('selTotal');
+
+  function resetTable() {
+    tblBody.innerHTML = '';
+    chkHeader.checked = false;
+    updateSummary();
+  }
+
+  function clearNamesInTable() {
+    tblBody.querySelectorAll('.hidStockId, .qtyInput, .notesInput').forEach(el => {
+      el.name = '';
+      if (el.classList.contains('qtyInput') || el.classList.contains('notesInput')) {
+        el.value = '';
+        el.disabled = true;
+      }
+    });
+    tblBody.querySelectorAll('.chkRow').forEach(chk => chk.checked = false);
+  }
+
+  supplierSelect.addEventListener('change', async function(){
+    const supplierId = this.value;
+    // reset dependent UI
+    poSelect.innerHTML = '<option value="">— Pilih PO —</option>';
+    poSelect.disabled = true;
+    resetTable();
+
+    if (!supplierId) return;
+
+    const url = urlSupplierPOsTpl.replace('__ID__', encodeURIComponent(supplierId));
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Gagal memuat daftar PO');
+      const data = await res.json();
+
+      (data.pos || []).forEach(po => {
+        const opt = document.createElement('option');
+        opt.value = po.id;
+        opt.textContent = po.po_number;
+        poSelect.appendChild(opt);
+      });
+      poSelect.disabled = false;
+    } catch (e) {
+      alert(e.message);
+    }
+  });
+
+  poSelect.addEventListener('change', async function(){
+    const poId = this.value;
+    resetTable();
+    if (!poId) return;
+
+    const url = urlPOStocksTpl.replace('__ID__', encodeURIComponent(poId));
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Gagal memuat stok PO');
+      const data = await res.json();
+
+      (data.items || []).forEach((row, idx) => {
+        const tr = document.createElement('tr');
+
+        tr.innerHTML = `
+          <td class="text-center">
+            <input type="checkbox" class="chkRow">
+            <input type="hidden" class="hidStockId">
+          </td>
+          <td>${row.material_code ? row.material_code : '—'}</td>
+          <td class="fw-semibold">${row.material_name}</td>
+          <td>${row.unit ?? ''}</td>
+          <td>${row.supplier ?? '—'}</td>
+          <td class="text-end availCell">${formatNumber(row.available)}</td>
+          <td>
+            <input type="number" min="0" step="0.0001" class="form-control text-end qtyInput" placeholder="0" disabled data-avail="${row.available}">
+          </td>
+          <td>
+            <input type="text" class="form-control notesInput" placeholder="Catatan item (opsional)" disabled>
+          </td>
+        `;
+
+        const chk   = tr.querySelector('.chkRow');
+        const hidId = tr.querySelector('.hidStockId');
+        const qty   = tr.querySelector('.qtyInput');
+        const note  = tr.querySelector('.notesInput');
+
+        chk.addEventListener('change', () => {
+          const sel = chk.checked;
+          qty.disabled  = !sel;
+          note.disabled = !sel;
+          qty.required  = sel;
+
+          if (sel) {
+            // set names saat dipilih
+            hidId.name = `items[${idx}][stock_id]`;
+            qty.name   = `items[${idx}][quantity]`;
+            note.name  = `items[${idx}][notes]`;
+            hidId.value = row.stock_id;
+
+            if (!qty.value || Number(qty.value) <= 0) {
+              qty.value = cleanDecimal(row.available);
+            }
+          } else {
+            // hapus nama agar tidak terkirim
+            hidId.name = '';
+            qty.name   = '';
+            note.name  = '';
+            qty.value  = '';
+            note.value = '';
+          }
+          updateSummary();
+        });
+
+        qty.addEventListener('input', () => {
+          clampQty(qty);
+          updateSummary();
+        });
+
+        tblBody.appendChild(tr);
+      });
+
+    } catch (e) {
+      alert(e.message);
+    }
+  });
+
+  // Header checkbox
+  chkHeader.addEventListener('change', () => {
+    tblBody.querySelectorAll('.chkRow').forEach(chk => {
+      if (chk.checked !== chkHeader.checked) {
+        chk.click(); // trigger logic set/unset names+fields
+      }
+    });
+    updateSummary();
+  });
+
+  // Pilih semua
+  btnSelectAll.addEventListener('click', () => {
+    chkHeader.checked = true;
+    chkHeader.dispatchEvent(new Event('change'));
+  });
+
+  // Bersihkan semua
+  btnClear.addEventListener('click', () => {
+    chkHeader.checked = false;
+    chkHeader.dispatchEvent(new Event('change'));
+  });
+
+  // Submit guard
+  form.addEventListener('submit', (e) => {
+    const picked = tblBody.querySelectorAll('.hidStockId[name^="items["]').length;
+    if (!picked) {
+      e.preventDefault();
+      alert('Pilih minimal satu item stok.');
+      return;
+    }
+    tblBody.querySelectorAll('.qtyInput[name^="items["]').forEach(q => clampQty(q));
+  });
+
+  // Helpers
+  function clampQty(input) {
+    const avail = Number(input.dataset.avail || 0);
+    let val = Number((input.value || '0').toString().replace(',', '.'));
+    if (!isFinite(val)) val = 0;
+    if (val < 0) val = 0;
+    if (val > avail) val = avail;
+    input.value = cleanDecimal(val);
+  }
+
+  function updateSummary() {
+    const qtyInputs = tblBody.querySelectorAll('.qtyInput[name^="items["]');
+    let count = 0, total = 0;
+    qtyInputs.forEach(q => {
+      const v = Number((q.value || '0').toString().replace(',', '.'));
+      if (v > 0) {
+        count++;
+        total += v;
+      }
+    });
+    selCountEl.textContent = count;
+    selTotalEl.textContent = cleanDecimal(total);
+  }
+
+  function formatNumber(val) {
+    if (val == null) return '0';
+    const n = Number(val);
+    return cleanDecimal(n);
+  }
+  function cleanDecimal(x) {
+    let s = (Number(x)).toFixed(4);
+    s = s.replace(/\.?0+$/, '');
+    return s === '' ? '0' : s;
+  }
+})();
+</script>
+@endpush
+@endsection
