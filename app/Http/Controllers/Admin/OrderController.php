@@ -37,13 +37,16 @@ class OrderController extends Controller
                 $qq->where(function ($w) use ($q) {
                     $w->where('notes', 'like', "%{$q}%")
                       ->orWhere('name', 'like', "%{$q}%")
+                      ->orWhere('production_name', 'like', "%{$q}%")
+                      ->orWhere('warehouse_admin_name', 'like', "%{$q}%")
+                      ->orWhere('warehouse_leader_name', 'like', "%{$q}%")
                       ->orWhere('id', $q);
                 });
             })
             ->latest('id')
             ->paginate(15);
 
-        $suppliers = Supplier::orderBy('name')->get(['id','name']);
+        $suppliers = Supplier::orderBy('name')->get(['id', 'name']);
 
         return view('admin.order.index', compact('orders', 'suppliers', 'q'));
     }
@@ -57,66 +60,66 @@ class OrderController extends Controller
 
         $suppliers = Supplier::whereIn('id', $supplierIds)
             ->orderBy('name')
-            ->get(['id','name']);
+            ->get(['id', 'name']);
 
         return view('admin.order.create', compact('suppliers'));
     }
 
-    // AJAX: daftar PO milik supplier yang punya stok > 0
+    // AJAX: daftar PO milik supplier yang punya stok > 0 (STRICT, tanpa legacy)
     public function supplierPOs(Supplier $supplier)
     {
         $poIds = Stock::where('supplier_id', $supplier->id)
-            ->whereNotNull('last_po_id')
+            ->whereNotNull('purchase_order_id')
             ->where('quantity', '>', 0)
             ->distinct()
-            ->pluck('last_po_id');
+            ->pluck('purchase_order_id');
 
         $pos = PurchaseOrder::whereIn('id', $poIds)
             ->orderByDesc('id')
-            ->get(['id','po_number']);
+            ->get(['id', 'po_number']);
 
         return response()->json([
             'supplier' => ['id' => $supplier->id, 'name' => $supplier->name],
-            'pos'      => $pos->map(fn($po) => ['id' => $po->id, 'po_number' => $po->po_number])->values(),
+            'pos' => $pos->map(fn($po) => ['id' => $po->id, 'po_number' => $po->po_number])->values(),
         ]);
     }
 
-    // AJAX: stok per-PO (qty > 0)
+    // AJAX: stok per-PO (qty > 0) — STRICT
     public function poStocks(PurchaseOrder $purchaseOrder)
     {
-        $rows = Stock::with('supplier')
-            ->where('last_po_id', $purchaseOrder->id)
+        $rows = Stock::with(['supplier'])
+            ->where('purchase_order_id', $purchaseOrder->id)
             ->where('quantity', '>', 0)
             ->orderBy('material_name')
             ->orderBy('unit')
             ->get();
 
         return response()->json([
-            'po'    => [
+            'po' => [
                 'id'   => $purchaseOrder->id,
                 'no'   => $purchaseOrder->po_number,
                 'supp' => optional($purchaseOrder->supplier)->name,
             ],
-            'items' => $rows->map(function (Stock $s) {
+            'items' => $rows->map(function (Stock $s) use ($purchaseOrder) {
                 return [
-                    'stock_id'       => $s->id,
-                    'material_code'  => $s->material_code,
-                    'material_name'  => $s->material_name,
-                    'unit'           => $s->unit,
-                    'supplier'       => optional($s->supplier)->name,
-                    'available'      => (float) $s->quantity,
+                    'stock_id'      => $s->id,
+                    'material_code' => $s->material_code,
+                    'material_name' => $s->material_name,
+                    'unit'          => $s->unit,
+                    'supplier'      => optional($s->supplier)->name,
+                    'po_number'     => $purchaseOrder->po_number,
+                    'available'     => (float) $s->quantity,
                 ];
             }),
         ]);
     }
 
     /**
-     * SIMPAN permintaan → auto POST OUT.
-     * Hanya catatan per item (items.*.notes).
+     * Simpan permintaan barang (langsung auto-post stok keluar)
      */
     public function store(Request $request)
     {
-        // Normalisasi qty (koma→titik, hilangkan spasi)
+        // Normalisasi qty koma→titik
         $payload = $request->all();
         if (isset($payload['items']) && is_array($payload['items'])) {
             foreach ($payload['items'] as $i => $row) {
@@ -125,7 +128,7 @@ class OrderController extends Controller
                     $v = str_replace(',', '.', $v);
                     $parts = explode('.', $v);
                     if (count($parts) > 2) {
-                        $v = $parts[0].'.'.implode('', array_slice($parts, 1));
+                        $v = $parts[0] . '.' . implode('', array_slice($parts, 1));
                     }
                     $payload['items'][$i]['quantity'] = $v;
                 }
@@ -134,61 +137,70 @@ class OrderController extends Controller
         }
 
         $data = $request->validate([
-            'items'             => ['required','array','min:1'],
-            'items.*.stock_id'  => ['required','integer','exists:stocks,id'],
-            'items.*.quantity'  => ['required','numeric','min:0.0001'],
-            'items.*.notes'     => ['nullable','string','max:255'],
+            'production_name'        => ['required', 'string', 'max:255'],
+            'warehouse_admin_name'   => ['required', 'string', 'max:255'],
+            'warehouse_leader_name'  => ['required', 'string', 'max:255'],
+            'supply_chain_head_name' => ['nullable', 'string', 'max:191'],
+            'items'                  => ['required', 'array', 'min:1'],
+            'items.*.stock_id'       => ['required', 'integer', 'exists:stocks,id'],
+            'items.*.quantity'       => ['required', 'numeric', 'min:0.0001'],
+            'items.*.notes'          => ['nullable', 'string', 'max:255'],
         ], [], [
             'items' => 'Item permintaan',
         ]);
 
         DB::transaction(function () use ($data) {
+            $now = now();
+
             // Nomor dokumen order
             $counter   = Order::lockForUpdate()->count() + 1;
-            $orderName = 'REQ-' . now()->format('Ymd') . '-' . str_pad($counter, 4, '0', STR_PAD_LEFT);
+            $orderName = 'REQ-' . $now->format('Ymd') . '-' . str_pad($counter, 4, '0', STR_PAD_LEFT);
 
-            // 1) ORDER (auto selesai)
+            // 1) ORDER
             $order = Order::create([
-                'user_id' => auth()->id(),
-                'status'  => $this->S('success'),
-                'name'    => $orderName,
-                'notes'   => null,
+                'user_id'               => auth()->id(),
+                'status'                => $this->S('success'),
+                'name'                  => $orderName,
+                'notes'                 => null,
+                'production_name'       => $data['production_name'],
+                'warehouse_admin_name'  => $data['warehouse_admin_name'],
+                'warehouse_leader_name' => $data['warehouse_leader_name'],
+                'supply_chain_head_name'=> $data['supply_chain_head_name'] ?? null,
+                'created_at'            => $now,
+                'updated_at'            => $now,
             ]);
 
-            // 2) Production Issue (langsung posted)
+            // 2) Production Issue (posted)
             $issueCounter = ProductionIssue::lockForUpdate()->count() + 1;
-            $issueNumber  = 'IS-' . now()->format('Ymd') . '-' . str_pad($issueCounter, 4, '0', STR_PAD_LEFT);
+            $issueNumber  = 'IS-' . $now->format('Ymd') . '-' . str_pad($issueCounter, 4, '0', STR_PAD_LEFT);
 
             $issue = ProductionIssue::create([
-                'issue_date'   => now()->toDateString(),
+                'issue_date'   => $now->toDateString(),
                 'issue_number' => $issueNumber,
                 'notes'        => null,
                 'status'       => 'posted',
-                'posted_at'    => now(),
+                'posted_at'    => $now,
                 'posted_by'    => Auth::id(),
                 'order_id'     => $order->id,
+                'created_at'   => $now,
+                'updated_at'   => $now,
             ]);
 
+            // 3) Items
             foreach ($data['items'] as $row) {
-                /** @var \App\Models\Stock $stock */
-                $stock = Stock::with('supplier')->lockForUpdate()->findOrFail($row['stock_id']);
+                $stock = Stock::with(['supplier','purchaseOrder'])->lockForUpdate()->findOrFail($row['stock_id']);
 
                 $available = (float) $stock->quantity;
                 $qty       = (float) $row['quantity'];
                 $itemNote  = trim((string)($row['notes'] ?? ''));
 
-                if ($qty <= 0) {
+                if ($qty <= 0 || $qty > $available) {
                     throw \Illuminate\Validation\ValidationException::withMessages([
-                        "items" => ["Qty harus > 0 untuk {$stock->material_name} (PO {$stock->last_po_number})."]
-                    ]);
-                }
-                if ($qty > $available) {
-                    throw \Illuminate\Validation\ValidationException::withMessages([
-                        "items" => ["Qty melebihi stok tersedia untuk {$stock->material_name} (PO {$stock->last_po_number}). Tersedia: {$available}."]
+                        "items" => ["Qty tidak valid untuk {$stock->material_name} (tersedia: {$available})"]
                     ]);
                 }
 
-                // a) OrderItem (jejak)
+                // a) OrderItem
                 $orderItem = OrderItem::create([
                     'order_id'       => $order->id,
                     'stock_id'       => $stock->id,
@@ -198,6 +210,8 @@ class OrderController extends Controller
                     'unit'           => $stock->unit,
                     'quantity'       => $qty,
                     'notes'          => $itemNote ?: null,
+                    'created_at'     => $now,
+                    'updated_at'     => $now,
                 ]);
 
                 // b) ProductionIssueItem
@@ -211,40 +225,42 @@ class OrderController extends Controller
                     'unit'                => $stock->unit,
                     'quantity'            => $qty,
                     'notes'               => $itemNote ?: null,
+                    'created_at'          => $now,
+                    'updated_at'          => $now,
                 ]);
 
                 // c) Kurangi stok
                 $stock->decrement('quantity', $qty);
 
-                // d) Movement OUT → hanya simpan notes kalau admin isi
-                $movementNote = $itemNote !== '' ? $itemNote : null;
+                // d) Movement OUT
+                // PO number ambil dari relasi baru; stop memakai last_po_number.
+                $poNumber = optional($stock->purchaseOrder)->po_number;
 
+                // Jika method recordOut-mu sudah ditambah kolom purchase_order_id, isi juga:
                 StockMovement::recordOut(
-                    $stock->id,
-                    (int) $stock->supplier_id,
-                    $stock->material_name,
-                    $stock->unit,
-                    (float) $qty,
-                    $stock->last_po_number ?: null,
-                    $movementNote, // null jika kosong
-                    'production_issues',
-                    (int) $issue->id,
-                    now()
+                    stockId:       $stock->id,
+                    supplierId:    (int) $stock->supplier_id,
+                    material:      $stock->material_name,
+                    unit:          $stock->unit,
+                    qty:           (float) $qty,
+                    poNumber:      $poNumber ?: null,
+                    notes:         $itemNote ?: null,
+                    movedAt:       $now,
+                    orderId:       $order->id,
+                    orderItemId:   $orderItem->id,
+                    // purchaseOrderId: $stock->purchase_order_id, // aktifkan jika signature-nya sudah ada
                 );
             }
         });
 
         return redirect()
             ->route('admin.orders.index')
-            ->with('success', 'Permintaan disimpan & stok langsung dikurangi. Material code ikut tersimpan.');
+            ->with('success', 'Permintaan disimpan dan stok langsung dikurangi.');
     }
 
     public function show(Order $order)
     {
-        $order->load([
-            'user',
-            'items.stock.supplier',
-        ]);
+        $order->load(['user', 'items.stock.supplier']);
         return view('admin.order.show', compact('order'));
     }
 
@@ -259,25 +275,21 @@ class OrderController extends Controller
         return back()->with('success', 'Permintaan dihapus.');
     }
 
-    /**
-     * Generate & download PDF Receipt Permintaan Barang (bukti fisik)
-     * Route: admin.orders.receipt-pdf
-     */
     public function receiptPdf(Order $order)
     {
         $order->load(['user', 'items.stock.supplier']);
 
         $printedAtDate = optional($order->created_at)->format('d-m-Y') ?? now()->format('d-m-Y');
-        $printedAtTime = optional($order->created_at)->format('H:i')    ?? now()->format('H:i');
+        $printedAtTime = optional($order->created_at)->format('H:i') ?? now()->format('H:i');
         $adminName     = Auth::user()->name ?? optional($order->user)->name ?? '';
-       
+
         $pdf = PDF::loadView('admin.order.pdf', [
-            'order'         => $order,
-            'printedAtDate' => $printedAtDate,
-            'printedAtTime' => $printedAtTime,
-            'adminName'     => $adminName,
+            'order'          => $order,
+            'printedAtDate'  => $printedAtDate,
+            'printedAtTime'  => $printedAtTime,
+            'adminName'      => $adminName,
         ])->setPaper('a4', 'portrait');
 
-        return $pdf->download('Order_'.$order->name.'_Receipt.pdf');
+        return $pdf->download('Order_' . $order->name . '_Receipt.pdf');
     }
 }

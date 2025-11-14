@@ -41,6 +41,9 @@ class PurchaseReceiptPostingController extends Controller
                 return back()->with('warning', 'Receipt harus terkait PO agar stok dipisah per-PO.');
             }
 
+            // supplier per-PO (bukan per item)
+            $supplierId = $po->supplier_id;
+
             // Kunci PO agar perhitungan sisa tidak race
             DB::table('purchase_orders')->where('id', $poId)->lockForUpdate()->value('id');
 
@@ -59,16 +62,17 @@ class PurchaseReceiptPostingController extends Controller
 
             $violations = [];
             foreach ($receipt->items as $it) {
-                // Lewati baris nol
                 if ((float)$it->received_quantity <= 0) {
                     continue;
                 }
-                $itemId = (int) $it->purchase_order_item_id;
+                $itemId    = (int) $it->purchase_order_item_id;
                 $remaining = max(0, (float)($ordered[$itemId] ?? 0) - (float)($posted[$itemId] ?? 0));
+
                 if ((float)$it->received_quantity > $remaining) {
                     $violations[] = "{$it->material_name}: qty {$it->received_quantity} > sisa {$remaining}";
                 }
             }
+
             if ($violations) {
                 return back()->with('warning', 'Tidak bisa posting (melebihi sisa): ' . implode(' | ', $violations));
             }
@@ -81,40 +85,38 @@ class PurchaseReceiptPostingController extends Controller
 
                 // Ambil material_code dari PO Item yang terkait
                 $poi = $po->items->firstWhere('id', $it->purchase_order_item_id);
+
                 $materialCode = $poi && $poi->material_code !== null
                     ? strtoupper(trim((string) $poi->material_code))
                     : null;
 
-                // Baris stok per-PO
-                $stock = Stock::where([
-                        'supplier_id'   => $it->supplier_id,
-                        'material_name' => $it->material_name,
-                        'unit'          => $it->unit,
-                        'last_po_id'    => $poId,
-                    ])
-                    ->lockForUpdate()
-                    ->first();
+                $materialName = $it->material_name;
+                $unit         = $it->unit;
 
-                if (!$stock) {
-                    $stock = Stock::create([
-                        'supplier_id'    => $it->supplier_id,
-                        'material_name'  => $it->material_name,
-                        'material_code'  => $materialCode,
-                        'unit'           => $it->unit,
-                        'last_po_id'     => $poId,
-                        'last_po_number' => $poNumber,
-                        'quantity'       => 0,
-                    ]);
-                } else {
-                    if ($materialCode && $stock->material_code !== $materialCode) {
-                        $stock->material_code = $materialCode;
-                    }
-                }
+                // Baris stok per-PO: 1 baris = 1 PO + 1 material + 1 supplier
+                $stock = Stock::firstOrCreate(
+                    [
+                        'purchase_order_id' => $poId,
+                        'supplier_id'       => $supplierId,
+                        'material_code'     => $materialCode,
+                    ],
+                    [
+                        'material_name'     => $materialName,
+                        'unit'              => $unit,
+                        'quantity'          => 0,
+                        'last_po_id'        => $poId,
+                        'last_po_number'    => $poNumber,
+                    ]
+                );
 
-                // Tambahkan qty & sinkron info PO
-                $stock->quantity       = (float) $stock->quantity + (float) $it->received_quantity;
+                // Update nama/unit kalau ada perubahan
+                $stock->material_name  = $materialName;
+                $stock->unit           = $unit;
                 $stock->last_po_id     = $poId;
                 $stock->last_po_number = $poNumber;
+
+                // Tambah qty ke stok batch ini
+                $stock->quantity = (float) $stock->quantity + (float) $it->received_quantity;
                 $stock->save();
 
                 // Movement IN pada tanggal penerimaan (bukan now)
@@ -126,8 +128,6 @@ class PurchaseReceiptPostingController extends Controller
                     'direction'     => StockMovement::DIR_IN,
                     'quantity'      => (float) $it->received_quantity,
                     'notes'         => $it->notes,
-                    'ref_type'      => 'purchase_receipts',
-                    'ref_id'        => $receipt->id,
                     'po_number'     => $poNumber,
                     'moved_at'      => $receipt->receipt_date->startOfDay(),
                 ]);
@@ -156,6 +156,7 @@ class PurchaseReceiptPostingController extends Controller
 
             // 4) Tandai PO complete bila seluruh item terpenuhi (berdasarkan POSTED)
             $po = $receipt->purchaseOrder->fresh('items');
+
             $postedPerItem = DB::table('purchase_receipt_items as pri')
                 ->join('purchase_receipts as pr', 'pr.id', '=', 'pri.purchase_receipt_id')
                 ->where('pr.status', 'posted')

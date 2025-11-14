@@ -3,15 +3,7 @@
 @section('content')
 <div class="container">
 
-  {{-- Flash --}}
-  @if (session('success')) <div class="alert alert-success">{{ session('success') }}</div> @endif
-  @if (session('warning')) <div class="alert alert-warning">{{ session('warning') }}</div> @endif
-  @if ($errors->any())
-    <div class="alert alert-danger">
-      <ul class="mb-0">@foreach ($errors->all() as $e) <li>{{ $e }}</li> @endforeach</ul>
-    </div>
-  @endif
-
+  {{-- Header --}}
   <div class="d-flex align-items-center justify-content-between mb-3">
     <h4 class="mb-0">Permintaan Barang</h4>
     <a href="{{ route('admin.orders.create') }}" class="btn btn-primary">
@@ -19,7 +11,7 @@
     </a>
   </div>
 
-  {{-- Search --}}
+  {{-- Pencarian --}}
   <form method="get" action="{{ route('admin.orders.index') }}" class="card card-body mb-3">
     <div class="row g-2 align-items-end">
       <div class="col-md-6">
@@ -31,7 +23,7 @@
             name="q"
             class="form-control"
             value="{{ $q ?? '' }}"
-            placeholder="Ketik nomor dokumen"
+            placeholder="Ketik nomor dokumen atau nama produksi"
             autocomplete="off"
           >
         </div>
@@ -43,19 +35,22 @@
     </div>
   </form>
 
-  {{-- Table --}}
+  {{-- Data Table --}}
   <div class="card">
     <div class="card-body p-0">
       <div class="table-responsive">
         <table class="table table-bordered table-hover align-middle mb-0">
-          <thead class="table-light">
+            <thead class="table-light text-center align-middle">
             <tr>
-              <th style="width:220px">Nomor Dokumen</th>
-              <th>Dibuat Oleh</th>
-              <th style="width:130px">Tanggal</th>
-              <th style="width:100px">Jam</th>
-              <th style="width:140px">Status</th>
-              <th style="width:210px">Aksi</th>
+              <th style="width:150px">Nomor Dokumen</th>
+              <th style="width:160px">Nama Produksi</th>
+              <th style="width:150px">Checker Gudang</th>
+              <th style="width:150px">Leader Gudang</th>
+              <th style="width:150px">Supply&nbsp;Chain<br>Head</th>
+              <th style="width:120px">Tanggal</th>
+              <th style="width:90px">Jam</th>
+              <th style="width:120px">Status</th>
+              <th style="width:200px">Aksi</th>
             </tr>
           </thead>
           <tbody>
@@ -70,13 +65,16 @@
                 };
               @endphp
               <tr>
-                <td>
-                  <div class="fw-semibold">{{ $o->name ?? '' }}</div>
+                <td class="fw-semibold text-center">{{ $o->name ?? '—' }}</td>
+                <td class="text-center">{{ $o->production_name ?? '—' }}</td>
+                <td class="text-center">{{ $o->warehouse_admin_name ?? '—' }}</td>
+                <td class="text-center">{{ $o->warehouse_leader_name ?? '—' }}</td>
+                <td class="text-center">{{ $o->supply_chain_head_name ?? '—' }}</td>
+                <td class="text-center">{{ optional($o->created_at)->format('d-m-Y') }}</td>
+                <td class="text-center">{{ optional($o->created_at)->format('H:i') }}</td>
+                <td class="text-center">
+                  <span class="badge {{ $badgeClass }}">{{ $o->status }}</span>
                 </td>
-                <td>{{ optional($o->user)->name ?? '—' }}</td>
-                <td>{{ optional($o->created_at)->format('d-m-Y') }}</td>
-                <td>{{ optional($o->created_at)->format('H:i') }}</td>
-                <td><span class="badge {{ $badgeClass }}">{{ $o->status }}</span></td>
                 <td class="text-center">
                   <div class="btn-group">
                     <a href="{{ route('admin.orders.show', $o) }}" class="btn btn-sm btn-outline-primary">
@@ -90,16 +88,19 @@
               </tr>
             @empty
               <tr>
-                <td colspan="6" class="text-center text-muted">Tidak ada data.</td>
+                <td colspan="9" class="text-center text-muted">Tidak ada data permintaan barang.</td>
               </tr>
             @endforelse
           </tbody>
         </table>
       </div>
     </div>
+
+    {{-- Pagination --}}
     <div class="card-footer">
       {{ $orders->withQueryString()->links() }}
     </div>
   </div>
+
 </div>
 @endsection

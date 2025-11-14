@@ -11,7 +11,7 @@ class PurchaseOrderItem extends Model
 
     protected $fillable = [
         'purchase_order_id',
-        'material_code',             // ⬅️ KODE BARANG (baru)
+        'material_code',             
         'material_name',
         'ordered_quantity',
         'actual_arrived_quantity',

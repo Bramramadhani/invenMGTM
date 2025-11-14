@@ -3,7 +3,7 @@
 ?>
 <aside class="navbar navbar-vertical navbar-expand-lg navbar-dark">
      <div class="container">
-        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbar-menu">
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar-menu">
             <span class="navbar-toggler-icon"></span>
         </button>
         <!-- Bagian Logo & Judul -->

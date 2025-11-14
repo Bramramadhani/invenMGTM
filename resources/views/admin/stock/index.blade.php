@@ -26,7 +26,6 @@
   </div>
 
   @php
-    // helper angka lokal di view
     if (!function_exists('qty_fmt')) {
       function qty_fmt($n, int $dec = 4): string {
         $s = number_format((float)$n, $dec, '.', '');
@@ -34,8 +33,9 @@
         return $s === '' ? '0' : $s;
       }
     }
-    // pilihan tampilan (default: supplier-po)
-    $group = request('group', 'supplier-po');
+
+    // group dikirim dari controller, fallback ke request jika perlu
+    $group = $group ?? request('group', 'supplier-po');
     $term  = $term ?? request('q', '');
   @endphp
 
@@ -78,48 +78,43 @@
 
   @if($group === 'supplier-po')
     {{-- =========================
-         TAMPILAN TER-KELOMPOK
-         Supplier ➜ PO (blok)
+         TAMPILAN KELOMPOK:
+         Supplier ➜ NO PO ➜ Item
        ========================= --}}
     @php
-      // Ambil koleksi dari paginator (hanya halaman aktif)
-      $collection = $stocks instanceof \Illuminate\Pagination\AbstractPaginator
-        ? $stocks->getCollection()
-        : collect($stocks);
-
-      // Kelompokkan: Supplier Name -> PO Number
-      $grouped = $collection
+      /** @var \Illuminate\Support\Collection $stocks */
+      $grouped = $stocks
         ->groupBy(function($row) {
           return optional($row->supplier)->name ?: 'Tanpa Supplier';
         })
         ->map(function($rowsBySupplier) {
           return $rowsBySupplier->groupBy(function($row) {
-            return $row->last_po_number ?: 'Tanpa PO';
+            $poNumber = optional($row->purchaseOrder)->po_number ?? 'Tanpa PO';
+            return $poNumber;
           });
         });
     @endphp
 
     @forelse($grouped as $supplierName => $byPo)
-      {{-- Kartu per Supplier --}}
       <div class="card mb-4">
         <div class="card-header">
-          {{-- gunakan nbsp agar spasi pasti terlihat --}}
           <strong>Supplier</strong>&nbsp;:&nbsp;<span>{{ $supplierName }}</span>
         </div>
 
         <div class="card-body">
-          {{-- Setiap PO jadi blok dengan spasi antar blok --}}
           <div class="d-flex flex-column gap-3">
             @foreach($byPo as $poNumber => $rows)
               @php
+                /** @var \App\Models\Stock|null $first */
+                $first    = $rows->first();
+                $poModel  = optional($first)->purchaseOrder;
+                $poId     = $poModel?->id;  // STRICT: tanpa fallback last_po_id
                 $totalQty = $rows->sum(fn($r) => (float)$r->quantity);
-                $poId     = optional($rows->first())->last_po_id;
               @endphp
 
               <div class="bg-light border rounded p-3">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                   <h6 class="mb-0">
-                    {{-- gunakan nbsp agar spasi pasti terlihat --}}
                     <span>NO PO</span>&nbsp;:&nbsp;
                     <span>
                       @if($poId && $poNumber && $poNumber !== 'Tanpa PO')
@@ -149,12 +144,12 @@
                     <tbody>
                       @foreach($rows->values() as $i => $row)
                         @php
-                          $qty   = (float)$row->quantity;
+                          $qty    = (float)$row->quantity;
                           $isZero = $qty <= 0;
                           $isLow  = !$isZero && $qty <= 10;
                         @endphp
                         <tr>
-                          <td>{{ $i+1 }}</td>
+                          <td>{{ $i + 1 }}</td>
                           <td>{{ $row->material_code ?: '—' }}</td>
                           <td class="fw-semibold">{{ $row->material_name }}</td>
                           <td>{{ $row->unit ?? '—' }}</td>
@@ -175,13 +170,6 @@
             @endforeach
           </div>
         </div>
-
-        {{-- Info: halaman ini hanya menampilkan data pada page aktif paginator --}}
-        @if($stocks instanceof \Illuminate\Pagination\AbstractPaginator)
-          <div class="card-footer small text-muted">
-            Gunakan navigasi halaman untuk melihat grup lain.
-          </div>
-        @endif
       </div>
     @empty
       <div class="card">
@@ -190,16 +178,6 @@
         </div>
       </div>
     @endforelse
-
-    {{-- Pagination --}}
-    @if($stocks instanceof \Illuminate\Pagination\AbstractPaginator)
-      <div class="d-flex justify-content-between align-items-center mt-3">
-        <div class="text-muted small">
-          Menampilkan {{ $stocks->firstItem() }}–{{ $stocks->lastItem() }} dari {{ $stocks->total() }} baris
-        </div>
-        {{ $stocks->withQueryString()->links() }}
-      </div>
-    @endif
 
   @else
     {{-- =========================
@@ -223,9 +201,13 @@
             <tbody>
               @forelse ($stocks as $i => $st)
                 @php
-                  $qty = (float) $st->quantity;
+                  $qty    = (float) $st->quantity;
                   $isZero = $qty <= 0;
                   $isLow  = !$isZero && $qty <= 10;
+
+                  $po   = optional($st->purchaseOrder);
+                  $poId = $po->id;
+                  $poNo = $po->po_number;
                 @endphp
                 <tr>
                   <td>{{ $stocks->firstItem() + $i }}</td>
@@ -242,10 +224,8 @@
                     @endif
                   </td>
                   <td>
-                    @if($st->last_po_id && $st->last_po_number)
-                      <a href="{{ route('admin.purchase-orders.show', $st->last_po_id) }}">
-                        {{ $st->last_po_number }}
-                      </a>
+                    @if($poId && $poNo)
+                      <a href="{{ route('admin.purchase-orders.show', $poId) }}">{{ $poNo }}</a>
                     @else
                       —
                     @endif

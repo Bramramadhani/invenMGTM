@@ -15,11 +15,9 @@ class ProductionIssueItem extends Model
         'order_item_id',
         'stock_id',
         'supplier_id',
-
-        'material_code',   // ⬅️ NEW
+        'material_code',   
         'material_name',
         'unit',
-
         'quantity',
         'notes',
     ];

@@ -24,7 +24,7 @@
     <style>{!! $css !!}</style>
   @endif
 
-  {{-- CSS minimal yang didukung DomPDF (fallback yang pasti jalan) --}}
+  {{-- CSS minimal yang didukung DomPDF --}}
   <style>
     @page { margin: 18mm 14mm; }
     * { font-family: DejaVu Sans, Arial, sans-serif; font-size: 12px; }
@@ -46,6 +46,19 @@
     .header-left  { display: table-cell; vertical-align: middle; }
     .header-right { display: table-cell; vertical-align: middle; text-align: right; }
     .badge { display: inline-block; padding: 2px 6px; border:1px solid #333; border-radius: 3px; font-size: 10px; }
+
+    /* 🧩 Styling tambahan untuk catatan */
+    .note-block {
+      white-space: pre-line;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .note-reject {
+      color: #c00;
+      font-size: 10px;
+      margin-top: 3px;
+      display: block;
+    }
   </style>
 </head>
 <body>
@@ -105,7 +118,23 @@
           <td>{{ $it->material_name }}</td>
           <td class="text-center">{{ $it->unit }}</td>
           <td class="text-right">{{ qty_fmt($it->received_quantity) }}</td>
-          <td>{{ $it->notes ?? '' }}</td>
+          <td class="note-block">
+            {{-- Catatan penerimaan --}}
+            @if(!empty($it->notes))
+              {{ $it->notes }}
+            @endif
+
+            {{-- Catatan reject (jika ada) --}}
+            @php
+              $lines = preg_split('/[\r\n]+/', trim($it->notes ?? ''));
+              $rejects = array_filter($lines, fn($l) => str_contains($l, 'Reject:'));
+            @endphp
+            @if(!empty($rejects))
+              @foreach($rejects as $r)
+                <span class="note-reject">{{ $r }}</span>
+              @endforeach
+            @endif
+          </td>
         </tr>
       @empty
         <tr>
@@ -125,4 +154,3 @@
 
 </body>
 </html>
- 

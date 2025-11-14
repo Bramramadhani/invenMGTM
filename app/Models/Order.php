@@ -14,7 +14,10 @@ class Order extends Model
         'status',
         'name',
         'notes',
-        'unit', 
+        'production_name',        
+        'warehouse_admin_name',   
+        'warehouse_leader_name',  
+        'supply_chain_head_name', 
     ];
 
     public function user()

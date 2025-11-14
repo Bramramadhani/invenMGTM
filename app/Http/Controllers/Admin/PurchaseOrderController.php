@@ -31,7 +31,6 @@ class PurchaseOrderController extends Controller
 
     public function store(Request $request)
     {
-        // normalisasi ringan
         $request->merge(['po_number' => trim((string) $request->input('po_number'))]);
 
         $data = $request->validate([
@@ -87,21 +86,24 @@ class PurchaseOrderController extends Controller
             'items.receiptItems',
         ]);
 
-        $draftReceipts = PurchaseReceipt::withCount('items')
+        // === Riwayat Penerimaan (pertanggal) ===
+        $receipts = PurchaseReceipt::with(['items'])
             ->where('purchase_order_id', $purchaseOrder->id)
-            ->where('status', 'draft')
-            ->orderByDesc('id')
-            ->get(['id','purchase_order_id','receipt_date','receipt_number','status']);
+            ->orderByDesc('receipt_date')
+            ->get();
 
-        $totals = PurchaseReceiptItem::selectRaw('purchase_receipt_id, SUM(received_quantity) as total_qty')
-            ->whereIn('purchase_receipt_id', $draftReceipts->pluck('id'))
-            ->groupBy('purchase_receipt_id')
-            ->pluck('total_qty', 'purchase_receipt_id');
+        $receiptSummaries = $receipts->map(function ($receipt) {
+            $totalQty = $receipt->items->sum('received_quantity');
+            $itemCount = $receipt->items->count();
+            return [
+                'receipt' => $receipt,
+                'summary' => "{$itemCount} baris, total diterima: {$totalQty}",
+            ];
+        });
 
         return view('admin.purchase_orders.show', [
-            'purchaseOrder' => $purchaseOrder,
-            'draftReceipts' => $draftReceipts,
-            'totals'        => $totals,
+            'purchaseOrder'     => $purchaseOrder,
+            'receiptSummaries'  => $receiptSummaries,
         ]);
     }
 
@@ -145,7 +147,6 @@ class PurchaseOrderController extends Controller
                 'target_completion_date' => $data['target_completion_date'] ?? null,
             ]);
 
-            // rebuild items agar sederhana
             $purchaseOrder->items()->delete();
 
             foreach ($data['items'] as $row) {

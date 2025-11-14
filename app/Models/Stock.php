@@ -8,18 +8,22 @@ use Illuminate\Database\Eloquent\Builder;
 class Stock extends Model
 {
     protected $fillable = [
+        'purchase_order_id',  // batch ini milik PO mana
         'supplier_id',
         'material_name',
-        'material_code',   
+        'material_code',
         'unit',
         'quantity',
-        'last_po_id',
-        'last_po_number',
+        // NOTE: kolom legacy dihapus dari fillable agar tidak terisi lagi secara tidak sengaja
+        // 'last_po_id',
+        // 'last_po_number',
     ];
 
     protected $casts = [
-        'quantity'   => 'decimal:4',
-        'last_po_id' => 'integer',
+        'quantity'          => 'decimal:4',
+        'purchase_order_id' => 'integer',
+        'supplier_id'       => 'integer',
+        // 'last_po_id'      => 'integer',
     ];
 
     protected static function booted()
@@ -29,7 +33,6 @@ class Stock extends Model
             $m->material_code = $m->material_code !== null ? trim((string) $m->material_code) : null;
             $m->unit          = $m->unit !== null ? trim((string) $m->unit) : null;
 
-            // OPTIONAL: paksa kode jadi uppercase
             if ($m->material_code !== null) {
                 $m->material_code = strtoupper($m->material_code);
             }
@@ -41,13 +44,19 @@ class Stock extends Model
         return $this->belongsTo(\App\Models\Supplier::class);
     }
 
-    public function lastPo()
+    public function purchaseOrder()
     {
-        return $this->belongsTo(\App\Models\PurchaseOrder::class, 'last_po_id');
+        return $this->belongsTo(\App\Models\PurchaseOrder::class);
     }
 
+    // HAPUS relasi legacy:
+    // public function lastPo()
+    // {
+    //     return $this->belongsTo(\App\Models\PurchaseOrder::class, 'last_po_id');
+    // }
+
     /**
-     * Pencarian cepat: nama, KODE material, unit, PO terakhir, nama supplier.
+     * Pencarian cepat: nama, KODE material, unit, NO PO, nama supplier.
      */
     public function scopeSearch(Builder $q, ?string $term)
     {
@@ -56,11 +65,14 @@ class Stock extends Model
 
         return $q->where(function (Builder $qq) use ($like) {
             $qq->where('material_name', 'like', $like)
-               ->orWhere('material_code', 'like', $like) 
+               ->orWhere('material_code', 'like', $like)
                ->orWhere('unit', 'like', $like)
-               ->orWhere('last_po_number', 'like', $like)
+               // HAPUS last_po_number; cukup cari via relasi PO
                ->orWhereHas('supplier', function (Builder $qs) use ($like) {
                    $qs->where('name', 'like', $like);
+               })
+               ->orWhereHas('purchaseOrder', function (Builder $qs) use ($like) {
+                   $qs->where('po_number', 'like', $like);
                });
         });
     }
@@ -75,7 +87,6 @@ class Stock extends Model
         return $q->when($supplierId, fn (Builder $qq) => $qq->where('supplier_id', $supplierId));
     }
 
-    // OPTIONAL: urutan default yang rapi saat listing
     public function scopeOrderNice(Builder $q)
     {
         return $q->orderBy('material_code')
@@ -83,7 +94,6 @@ class Stock extends Model
                  ->orderBy('unit');
     }
 
-    // OPTIONAL: label siap pakai di view
     public function getDisplayLabelAttribute(): string
     {
         $code = $this->material_code ? "[{$this->material_code}] " : '';

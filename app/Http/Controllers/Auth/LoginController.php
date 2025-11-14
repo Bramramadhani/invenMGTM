@@ -5,12 +5,13 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use App\Models\User; // <— penting!
 
 class LoginController extends Controller
 {
     use \Illuminate\Foundation\Auth\AuthenticatesUsers;
 
-    protected $redirectTo = '/home'; // Default Laravel, kita override
+    protected $redirectTo = '/home';
 
     public function __construct()
     {
@@ -18,15 +19,15 @@ class LoginController extends Controller
     }
 
     /**
-     * Override setelah login berhasil.
+     * Dipanggil otomatis setelah login sukses oleh trait AuthenticatesUsers.
+     * $user DI-isi oleh Laravel (instance App\Models\User).
      */
-    protected function authenticated(Request $request, $user)
+    protected function authenticated(Request $request, User $user)
     {
-        if ($user->hasRole('Admin') || $user->hasRole('Super Admin')) {
+        if ($user->hasAnyRole(['Admin', 'Super Admin'])) {
             return redirect()->route('admin.dashboard');
         }
 
-        // Jika punya role lain
         return redirect('/dashboard');
     }
 }

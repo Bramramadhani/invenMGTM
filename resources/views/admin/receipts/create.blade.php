@@ -21,7 +21,6 @@
   @endif
 
   @php
-    // Formatter lokal: hilangkan nol di belakang desimal
     if (!function_exists('qty_fmt')) {
         function qty_fmt($n, int $dec = 4): string {
             $s = number_format((float)$n, $dec, '.', '');
@@ -33,7 +32,6 @@
 
   <form method="post" action="{{ route('admin.receipts.store', $purchaseOrder) }}">
     @csrf
-    {{-- CHANGED: dukungan idempotensi (opsional, dikirim dari controller) --}}
     @isset($idempotencyToken)
       <input type="hidden" name="idempotency_token" value="{{ $idempotencyToken }}">
     @endisset
@@ -63,59 +61,42 @@
             <th class="text-center" style="width:150px">DIPESAN</th>
             <th class="text-center" style="width:150px">SUDAH DITERIMA</th>
             <th class="text-center" style="width:200px">QTY DITERIMA</th>
+            <th style="width:200px">CATATAN</th>
           </tr>
         </thead>
         <tbody>
           @forelse($purchaseOrder->items as $row)
             @php
-              $ordered = (float) $row->ordered_quantity;
-
-              // CHANGED: gunakan total RECEIPT POSTED saja.
-              // Jika controller sudah kirim $row->received_total & $row->remaining, gunakan itu.
-              if (isset($row->received_total)) {
-                  $received = (float) $row->received_total;
-              } else {
-                  // Fallback: hitung posted only (hindari draft)
-                  $received = (float) $row->receiptItems()
-                      ->whereHas('receipt', fn($q) => $q->where('status','posted'))
-                      ->sum('received_quantity');
-              }
-              $remaining = isset($row->remaining)
-                  ? (float) $row->remaining
-                  : max(0, $ordered - $received);
-
-              // nilai lama dari request (jika validasi gagal)
+              $ordered   = (float) $row->ordered_quantity;
+              $received  = (float) ($row->received_total ?? 0);
+              $remaining = max(0, $ordered - $received);
               $oldQtyRaw = old("items.{$loop->index}.received_quantity");
               $oldQty    = $oldQtyRaw === null ? '' : qty_fmt((float)$oldQtyRaw);
               $oldNotes  = old("items.{$loop->index}.notes");
             @endphp
-            <tr>
-              <td class="text-center">{{ $loop->iteration }}</td>
-              <td>
-                <div class="fw-semibold">{{ $row->material_name }}</div>
-                <input type="hidden" name="items[{{ $loop->index }}][purchase_order_item_id]" value="{{ $row->id }}">
-              </td>
-              <td class="text-center">{{ $row->unit }}</td>
+            <tr data-index="{{ $loop->index }}">
+              <input type="hidden" name="items[{{ $loop->index }}][purchase_order_item_id]" value="{{ $row->id }}">
 
-              {{-- tampilkan tanpa .0000 --}}
-              <td class="text-center">{{ qty_fmt($ordered) }}</td>
-              <td class="text-center">
+              <td class="text-center">{{ $loop->iteration }}</td>
+              <td><div class="fw-semibold">{{ $row->material_name }}</div></td>
+              <td class="text-center align-middle">{{ $row->unit }}</td>
+              <td class="text-center align-middle">{{ qty_fmt($ordered) }}</td>
+              <td class="text-center align-middle">
                 {{ qty_fmt($received) }}
                 @if($received > $ordered)
                   <span class="badge bg-danger ms-2">Over</span>
                 @endif
               </td>
 
-              <td>
+              <td class="align-middle">
                 <div class="input-group">
                   <input
-                    type="number" step="0.0001" min="0.0001"
+                    type="number" step="0.0001" min="0"
                     class="form-control text-center"
                     name="items[{{ $loop->index }}][received_quantity]"
-                    value="{{ $oldQty !== '' ? $oldQty : ($remaining > 0 ? qty_fmt($remaining) : '') }}"
+                    value="{{ $oldQty }}"
                     placeholder="0"
                     max="{{ $remaining }}"
-                    {{ $remaining <= 0 ? 'disabled' : '' }}
                     aria-describedby="help-qty-{{ $loop->index }}"
                   >
                   <span class="input-group-text">{{ $row->unit }}</span>
@@ -123,17 +104,17 @@
                 <small id="help-qty-{{ $loop->index }}" class="text-muted d-block text-center">
                   Sisa: {{ qty_fmt($remaining) }}
                 </small>
-                @error("items.$loop->index.received_quantity")
+                @error("items.{$loop->index}.received_quantity")
                   <div class="text-danger small mt-1">{{ $message }}</div>
                 @enderror
               </td>
-              <td>
+
+              <td class="align-middle">
                 <input
                   type="text" class="form-control"
                   name="items[{{ $loop->index }}][notes]"
                   value="{{ $oldNotes ?? '' }}"
                   placeholder="Catatan per item (opsional)"
-                  {{ $remaining <= 0 ? 'disabled' : '' }}
                 >
               </td>
             </tr>

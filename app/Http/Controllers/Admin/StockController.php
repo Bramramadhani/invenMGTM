@@ -9,30 +9,38 @@ use Illuminate\Http\Request;
 class StockController extends Controller
 {
     /**
-     * Halaman stok: pencarian sederhana (material/unit/supplier), urut nama.
+     * Halaman stok.
+     * - group = supplier-po  → tampil per Supplier ➜ PO (tanpa pagination baris)
+     * - group = flat         → tabel flat dengan pagination
      */
     public function index(Request $request)
     {
-        $term = trim((string) $request->get('q', ''));
+        $term  = trim((string) $request->get('q', ''));
+        $group = (string) $request->get('group', 'supplier-po');
 
-        // use the Stock::scopeSearch to cover material_name, material_code, unit,
-        // last_po_number and supplier name in one place
-        $stocks = Stock::with('supplier')
+        $query = Stock::with(['supplier', 'purchaseOrder'])
             ->search($term)
+            ->orderBy('material_code')
             ->orderBy('material_name')
-            ->orderBy('unit')
-            ->paginate(15)
-            ->withQueryString();
+            ->orderBy('unit');
+
+        if ($group === 'supplier-po') {
+            // Ambil semua baris stok untuk digroup per Supplier+PO di view
+            $stocks = $query->get();
+        } else {
+            // Mode flat: pakai pagination biasa
+            $stocks = $query->paginate(15)->withQueryString();
+        }
 
         return view('admin.stock.index', [
             'stocks' => $stocks,
             'term'   => $term,
+            'group'  => $group,
         ]);
     }
 
     /**
-     * Nonaktif: kita jaga stok melalui Posting IN/OUT,
-     * bukan edit manual dari halaman stok.
+     * Nonaktif: stok dijaga dari proses IN/OUT, bukan edit manual.
      */
     public function update()
     {

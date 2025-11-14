@@ -1,11 +1,11 @@
 <header class="navbar navbar-expand-md navbar-light d-none d-lg-flex">
     <div class="container-xl">
-        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbar-menu">
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar-menu">
             <span class="navbar-toggler-icon"></span>
         </button>
         <div class="navbar-nav flex-row order-md-last">
             <div class="nav-item dropdown">
-                <a href="#" class="nav-link d-flex lh-1 text-reset p-0" data-toggle="dropdown">
+                <a href="#" class="nav-link d-flex lh-1 text-reset p-0" data-bs-toggle="dropdown">
                     <img src="{{ Auth::user()->avatar }}" class="avatar" />
                     <div class="d-none d-xl-block pl-2">
                         <div>{{ Auth::user()->name }}</div>

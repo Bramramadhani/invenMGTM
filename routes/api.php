@@ -1,18 +1,26 @@
 <?php
 
-use App\Http\Controllers\Api\CategoryController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+// use App\Http\Controllers\Api\CategoryController;
 
 /*
 |--------------------------------------------------------------------------
 | API Routes
 |--------------------------------------------------------------------------
 |
-| Here is where you can register API routes for your application. These
-| routes are loaded by the RouteServiceProvider within a group which
-| is assigned the "api" middleware group. Enjoy building your API!
+| Routes di file ini otomatis berada pada prefix /api dan middleware "api".
+| Sanctum cookie-based auth aktif via EnsureFrontendRequestsAreStateful.
 |
 */
 
-// Route::get('/category', CategoryController::class);
+// Cek sesi/login via Sanctum cookie
+Route::middleware('auth:sanctum')->get('/me', function (Request $request) {
+    return $request->user();
+});
+
+// Contoh publik sederhana (opsional)
+// Route::get('/health', fn() => response()->json(['ok' => true]));
+
+// Contoh resource lain (opsional, sesuaikan kebutuhan)
+// Route::apiResource('categories', CategoryController::class);

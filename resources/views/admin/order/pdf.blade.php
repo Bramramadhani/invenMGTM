@@ -11,6 +11,9 @@
 
   $logoPath = public_path('logo.png');
   $hasLogo  = file_exists($logoPath);
+
+  $reqDate = optional($order->created_at)->format('d-m-Y') ?? '-';
+  $reqTime = optional($order->created_at)->format('H:i') ?? '-';
 @endphp
 <!DOCTYPE html>
 <html>
@@ -27,35 +30,66 @@
     * { font-family: DejaVu Sans, Arial, Helvetica, sans-serif; font-size: 12px; }
     h1,h2,h3,h4,h5 { margin: 0 0 6px 0; }
     .small { font-size: 10px; color:#555; }
-    .text-right { text-align: right; }
-    .text-center { text-align: center; }
-    .text-left { text-align: left; }
     .mb-1 { margin-bottom: 4px; }
     .mb-2 { margin-bottom: 8px; }
     .mb-3 { margin-bottom: 12px; }
     .mb-4 { margin-bottom: 16px; }
 
     .table { width:100%; border-collapse: collapse; table-layout: fixed; }
-    .table th, .table td { 
-      border:1px solid #000; 
-      padding:6px; 
-      vertical-align: middle; 
-      font-size: 12px; 
-      text-align: center; /* default tengah */
+    .table th, .table td {
+      border:1px solid #000;
+      padding:6px;
+      vertical-align: middle;
+      font-size: 12px;
+      text-align: center;
     }
     .table th { background-color: #f2f2f2; font-weight: bold; }
+    .table td.catatan { text-align: center; }
 
-    /* Khusus catatan kiri */
-    .table td.catatan { text-align: left; }
-
-    .meta td { padding: 2px 4px; }
+    /* HEADER */
     .logo { height: 36px; }
     .header { display: table; width:100%; margin-bottom: 10px; }
-    .header-left { display: table-cell; vertical-align: middle; }
+    .header-left  { display: table-cell; vertical-align: middle; }
     .header-right { display: table-cell; vertical-align: middle; text-align: right; }
-    .sign-row { display: table; width: 100%; margin-top: 24px; }
-    .sign-col { display: table-cell; width: 50%; vertical-align: top; }
-    .sign-box { border:1px dashed #000; height: 80px; }
+    .header-right .row { margin-bottom: 2px; }
+
+    /* META – 7 kolom: kiri (label:sep:value) + spacer + kanan (label:sep:value) */
+    .meta { width:100%; border-collapse: collapse; }
+    .meta td { padding: 3px 4px; vertical-align: top; white-space: nowrap; }
+    .meta .label { width: 160px; font-weight: bold; }
+    .meta .sep   { width: 12px; text-align: center; }
+    .meta .value { width: 180px; }
+    .meta .flex  { width: 100%; } /* spacer fleksibel */
+
+    /* Sisi kanan meta */
+    .meta .label-r { width: 240px; text-align: right; padding-right: 6px; }
+    .meta .value-r { width: 260px; }
+
+    /* SIGNATURES (pakai tabel agar aman di DomPDF) */
+    .sign-grid { width:100%; border-collapse: collapse; table-layout: fixed; page-break-inside: avoid; }
+    .sign-grid th, .sign-grid td { border: 0; padding: 0 8px; }
+
+    .sign-title {
+      font-size: 12px;
+      font-weight: 700;
+      padding-bottom: 6px;
+      text-align: center;
+    }
+    .sign-box {
+      border:1px dashed #000;
+      height: 80px;
+      width: 90%;
+      margin: 0 auto;
+    }
+    .sig-name {
+      margin-top: 8px;
+      width: 90%;
+      font-weight: 700;
+      text-align: center;
+      word-break: break-word;
+      margin-left: auto;
+      margin-right: auto;
+    }
   </style>
 </head>
 <body>
@@ -68,32 +102,38 @@
       @endif
       <div>
         <h3 class="mb-1">Receipt Permintaan Barang</h3>
-        <div class="small">Bukti fisik pengeluaran untuk produksi</div>
+        <div class="small">Bukti pengeluaran barang untuk keperluan produksi</div>
       </div>
     </div>
     <div class="header-right">
-      <div><strong>No. Dokumen:</strong> {{ $order->name }}</div>
+      <div class="row"><strong>No. Dokumen:</strong> {{ $order->name ?? ('#'.$order->id) }}</div>
+      <div class="row small">Status: {{ $order->status ?? '-' }}</div>
     </div>
   </div>
 
-  {{-- Meta --}}
-  <table class="meta mb-3" style="width:100%;">
+  {{-- Meta: Jam Permintaan SEJAJAR dengan Tanggal Permintaan --}}
+  <table class="meta mb-3">
     <tr>
-      <td style="width:22%"><strong>Tanggal Cetak</strong></td>
-      <td style="width:28%">: {{ $printedAtDate }}</td>
-      <td style="width:22%"><strong>Jam Permintaan</strong></td>
-      <td style="width:28%">: {{ $printedAtTime }}</td>
+      <td class="label">Tanggal Permintaan</td>
+      <td class="sep">:</td>
+      <td class="value">{{ $reqDate }}</td>
+
+      <td class="flex"></td>
+
+      <td class="label label-r">Jam Permintaan</td>
+      <td class="sep">:</td>
+      <td class="value value-r">{{ $reqTime }}</td>
     </tr>
     <tr>
-      <td><strong>Dibuat Oleh</strong></td>
-      <td>: {{ optional($order->user)->name ?? '—' }}</td>
-      <td><strong>Admin</strong></td>
-      <td>: {{ $adminName ?? '' }}</td>
+      <td class="label">Dibuat Oleh</td>
+      <td class="sep">:</td>
+      <td class="value" colspan="5">{{ optional($order->user)->name ?? '—' }}</td>
     </tr>
     @if(!empty($order->notes))
       <tr>
-        <td><strong>Catatan</strong></td>
-        <td colspan="3">: {{ $order->notes }}</td>
+        <td class="label">Catatan</td>
+        <td class="sep">:</td>
+        <td class="value" colspan="5">{{ $order->notes }}</td>
       </tr>
     @endif
   </table>
@@ -104,9 +144,9 @@
       <tr>
         <th style="width:40px">No</th>
         <th style="width:80px">Kode</th>
-        <th style="width:150px">Material</th>
-        <th style="width:70px">Unit</th>
-        <th style="width:70px">Qty</th>
+        <th style="width:160px">Material</th>
+        <th style="width:60px">Unit</th>
+        <th style="width:80px">Qty</th>
         <th style="width:160px">Supplier / PO</th>
         <th style="width:160px">Catatan</th>
       </tr>
@@ -116,14 +156,14 @@
         @php
           $stock    = $row->stock;
           $supplier = optional($stock?->supplier)->name;
-          $po       = $stock?->last_po_number;
+          $po       = optional($stock?->purchaseOrder)->po_number; // STRICT: dari relasi PO
         @endphp
         <tr>
           <td>{{ $i+1 }}</td>
           <td>{{ $row->material_code ?? '—' }}</td>
-          <td>{{ $row->material_name }}</td> <!-- Material otomatis tengah -->
+          <td>{{ $row->material_name }}</td>
           <td>{{ $row->unit ?? '—' }}</td>
-          <td>{{ qty_fmt($row->quantity) }}</td> <!-- Qty otomatis tengah -->
+          <td>{{ qty_fmt($row->quantity) }}</td>
           <td>
             @if($supplier || $po)
               @if($supplier) <div>{{ $supplier }}</div> @endif
@@ -132,7 +172,7 @@
               —
             @endif
           </td>
-          <td class="catatan">{{ $row->notes ?: '—' }}</td> <!-- Catatan kiri -->
+          <td class="catatan">{{ $row->notes ?: '—' }}</td>
         </tr>
       @empty
         <tr>
@@ -142,19 +182,53 @@
     </tbody>
   </table>
 
-  {{-- Tanda Tangan --}}
-  <div class="sign-row">
-    <div class="sign-col" style="padding-right:10px;">
-      <div class="mb-1"><strong>Checker :</strong></div>
-      <div class="sign-box"></div>
-      <div class="small" style="margin-top:6px;">Tanda tangan & nama jelas</div>
-    </div>
-    <div class="sign-col" style="padding-left:10px;">
-      <div class="mb-1"><strong>Admin:</strong> {{ $adminName ?? '' }}</div>
-      <div class="sign-box"></div>
-      <div class="small" style="margin-top:6px;">Tanda tangan & nama jelas</div>
-    </div>
-  </div>
+  {{-- Tanda Tangan 1: Produksi & Checker Gudang (dua kolom) --}}
+  <table class="sign-grid mb-3">
+    <colgroup>
+      <col style="width:50%">
+      <col style="width:50%">
+    </colgroup>
+    <thead>
+      <tr>
+        <th class="sign-title">Produksi</th>
+        <th class="sign-title">Checker Gudang</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><div class="sign-box"></div></td>
+        <td><div class="sign-box"></div></td>
+      </tr>
+      <tr>
+        <td><div class="sig-name">{{ $order->production_name ?: ' ' }}</div></td>
+        <td><div class="sig-name">{{ $order->warehouse_admin_name ?: ' ' }}</div></td>
+      </tr>
+    </tbody>
+  </table>
+
+  {{-- Tanda Tangan 2: Leader Gudang (kiri) & Supply Chain Head (kanan) --}}
+  <table class="sign-grid">
+    <colgroup>
+      <col style="width:50%">
+      <col style="width:50%">
+    </colgroup>
+    <thead>
+      <tr>
+        <th class="sign-title">Leader Gudang</th>
+        <th class="sign-title">Supply Chain Head</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><div class="sign-box"></div></td>
+        <td><div class="sign-box"></div></td>
+      </tr>
+      <tr>
+        <td><div class="sig-name">{{ $order->warehouse_leader_name ?: ' ' }}</div></td>
+        <td><div class="sig-name">{{ $order->supply_chain_head_name ?: ' ' }}</div></td>
+      </tr>
+    </tbody>
+  </table>
 
   <p class="small" style="margin-top:14px;">
     Dicetak pada {{ $printedAtDate }} pukul {{ $printedAtTime }}.

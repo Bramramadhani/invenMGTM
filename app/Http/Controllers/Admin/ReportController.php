@@ -6,8 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Models\StockMovement;
 use App\Models\Supplier;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Response;
+use Illuminate\Support\Facades\Log;
+use Maatwebsite\Excel\Facades\Excel;
 use Carbon\Carbon;
+
+// pastikan nama & namespace ini cocok dengan file-mu:
+// app/Reports/Exports/StockMovementsExport.php
+use App\Reports\Exports\StockMovementsExport;
 
 class ReportController extends Controller
 {
@@ -16,24 +21,25 @@ class ReportController extends Controller
      */
     public function index(Request $request)
     {
-        // ====== FILTER ======
+        // ====== FILTER ====== 
         $dateFrom    = $request->input('date_from');
         $dateTo      = $request->input('date_to');
         $supplierId  = $request->input('supplier_id');
         $q           = trim((string) $request->input('q', ''));
         $type        = $request->input('type', 'all'); // all | in | out
+        $showNames   = (bool) $request->boolean('show_names'); // toggle tampilkan 3 nama
 
         // Default: bulan berjalan
         if (!$dateFrom || !$dateTo) {
-            $start = Carbon::now()->startOfMonth();
-            $end   = Carbon::now()->endOfMonth();
+            $start    = Carbon::now()->startOfMonth();
+            $end      = Carbon::now()->endOfMonth();
             $dateFrom = $dateFrom ?: $start->toDateString();
             $dateTo   = $dateTo   ?: $end->toDateString();
         }
 
-        // Siapkan query dasar movements
+        // Query dasar movements (ikut eager-load supplier/stock + order/orderItem->order)
         $base = StockMovement::query()
-            ->with(['supplier:id,name', 'stock:id,material_code,material_name,unit,last_po_number'])
+            ->withReportRelations()
             ->whereDate('moved_at', '>=', $dateFrom)
             ->whereDate('moved_at', '<=', $dateTo);
 
@@ -42,19 +48,7 @@ class ReportController extends Controller
         }
 
         if ($q !== '') {
-            $like = "%{$q}%";
-            $base->where(function ($w) use ($like) {
-                $w->where('material_name', 'like', $like)
-                  ->orWhere('unit', 'like', $like)
-                  ->orWhere('po_number', 'like', $like)
-                  ->orWhere('notes', 'like', $like)
-                  ->orWhereHas('stock', function ($s) use ($like) {
-                      $s->where('material_code', 'like', $like);
-                  })
-                  ->orWhereHas('supplier', function ($s) use ($like) {
-                      $s->where('name', 'like', $like);
-                  });
-            });
+            $base->search($q);
         }
 
         // Clone untuk IN/OUT
@@ -64,9 +58,20 @@ class ReportController extends Controller
         // KPI
         $totalInQty  = (float) $qIn->sum('quantity');
         $totalOutQty = (float) $qOut->sum('quantity');
-        $netQty      = $totalInQty - $totalOutQty;
+        
+        // Debug: Log detail transaksi untuk membantu investigasi
+        Log::info('Report KPI Debug', [
+            'date_range' => "$dateFrom to $dateTo",
+            'supplier_id' => $supplierId,
+            'in_transactions' => $qIn->select(['id', 'moved_at', 'quantity', 'direction', 'notes'])->get(),
+            'out_transactions' => $qOut->select(['id', 'moved_at', 'quantity', 'direction', 'notes'])->get(),
+            'total_in' => $totalInQty,
+            'total_out' => $totalOutQty
+        ]);
 
-        // Data tabel (batasi supaya tidak terlalu berat; bisa dibuat paginate jika perlu)
+        $netQty = $totalInQty - $totalOutQty;
+
+        // Data tabel (limit agar ringan; bisa dipaginate jika perlu)
         $inRows  = $type !== 'out'
             ? (clone $base)->where('direction', StockMovement::DIR_IN)
                 ->orderBy('moved_at', 'desc')->orderBy('id','desc')->limit(1000)->get()
@@ -77,7 +82,11 @@ class ReportController extends Controller
                 ->orderBy('moved_at', 'desc')->orderBy('id','desc')->limit(1000)->get()
             : collect();
 
-        $suppliers = Supplier::orderBy('name')->get(['id','name']);
+        // Get all suppliers ordered by name
+        $suppliers = Supplier::query()
+            ->select(['id', 'name'])
+            ->orderBy('name')
+            ->get();
 
         return view('admin.reports.index', [
             'filters'     => [
@@ -97,8 +106,8 @@ class ReportController extends Controller
     }
 
     /**
-     * Export CSV (mengikuti filter di halaman)
-     * ?type=all|in|out
+     * Export Excel dengan format rapi (dibuat oleh StockMovementsExport)
+     * Mengikuti filter halaman.
      */
     public function export(Request $request)
     {
@@ -107,82 +116,23 @@ class ReportController extends Controller
         $supplierId  = $request->input('supplier_id');
         $q           = trim((string) $request->input('q', ''));
         $type        = $request->input('type', 'all'); // all|in|out
+        $showNames   = (bool) $request->boolean('show_names');
 
         if (!$dateFrom || !$dateTo) {
-            $start = Carbon::now()->startOfMonth();
-            $end   = Carbon::now()->endOfMonth();
+            $start    = Carbon::now()->startOfMonth();
+            $end      = Carbon::now()->endOfMonth();
             $dateFrom = $dateFrom ?: $start->toDateString();
             $dateTo   = $dateTo   ?: $end->toDateString();
         }
 
-        $base = StockMovement::query()
-            ->with(['supplier:id,name', 'stock:id,material_code,material_name,unit,last_po_number'])
-            ->whereDate('moved_at', '>=', $dateFrom)
-            ->whereDate('moved_at', '<=', $dateTo);
+        // ❗ Tidak perlu build $rows di controller; biarkan export class yang ambil data
 
-        if ($supplierId) {
-            $base->where('supplier_id', $supplierId);
-        }
-        if ($q !== '') {
-            $like = "%{$q}%";
-                        $base->where(function ($w) use ($like) {
-                                $w->where('material_name', 'like', $like)
-                                    ->orWhere('unit', 'like', $like)
-                                    ->orWhere('po_number', 'like', $like)
-                                    ->orWhere('notes', 'like', $like)
-                                    ->orWhereHas('stock', fn($s) => $s->where('material_code', 'like', $like))
-                                    ->orWhereHas('supplier', fn($s) => $s->where('name', 'like', $like));
-                        });
-        }
+        // Simpel: gunakan nama file statis 'report.xlsx'
+        $filename = 'report.xlsx';
 
-        if ($type === 'in')  $base->where('direction', StockMovement::DIR_IN);
-        if ($type === 'out') $base->where('direction', StockMovement::DIR_OUT);
+        // Pass same filters to the export class
+        $export = new StockMovementsExport($dateFrom, $dateTo, $supplierId, $q, $type, $showNames);
 
-        $rows = $base->orderBy('moved_at','desc')->orderBy('id','desc')->get();
-
-        $filename = 'report_movements_'.($type).'_'.$dateFrom.'_to_'.$dateTo.'.csv';
-
-        $headers = [
-            'Content-Type'        => 'text/csv',
-            'Content-Disposition' => "attachment; filename=\"$filename\"",
-        ];
-
-        $callback = function () use ($rows) {
-            $out = fopen('php://output', 'w');
-            // Header CSV
-            fputcsv($out, [
-                'Tanggal',
-                'Jenis',       // IN/OUT
-                'Supplier',
-                'No PO',
-                'Kode',
-                'Material',
-                'Unit',
-                'Qty',
-                'Catatan',
-            ]);
-
-            foreach ($rows as $r) {
-                $supplier = optional($r->supplier)->name ?? '';
-                $code     = optional($r->stock)->material_code ?? '';
-                $unit     = $r->unit ?? (optional($r->stock)->unit ?? '');
-                $material = $r->material_name ?? optional($r->stock)->material_name ?? $r->material;
-                fputcsv($out, [
-                    optional($r->moved_at)->format('Y-m-d H:i:s'),
-                    $r->direction === StockMovement::DIR_IN ? 'IN' : 'OUT',
-                    $supplier,
-                    $r->po_number,
-                    $code,
-                    $material,
-                    $unit,
-                    $r->quantity,
-                    $r->notes,
-                ]);
-            }
-
-            fclose($out);
-        };
-
-        return Response::stream($callback, 200, $headers);
+        return Excel::download($export, $filename);
     }
 }

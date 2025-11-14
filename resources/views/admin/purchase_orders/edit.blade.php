@@ -4,20 +4,6 @@
 <div class="container">
   <h4 class="mb-4">Edit Purchase Order — {{ $purchaseOrder->po_number }}</h4>
 
-  {{-- Alerts --}}
-  @if (session('success'))
-    <div class="alert alert-success">{{ session('success') }}</div>
-  @endif
-  @if (session('warning'))
-    <div class="alert alert-warning">{{ session('warning') }}</div>
-  @endif
-  @if ($errors->any())
-    <div class="alert alert-danger">
-      <ul class="mb-0">
-        @foreach ($errors->all() as $error) <li>{{ $error }}</li> @endforeach
-      </ul>
-    </div>
-  @endif
 
   @php
     // Helper lokal: format qty tanpa nol belakang

@@ -10,16 +10,10 @@
     </a>
   </div>
 
-  @if ($errors->any())
-    <div class="alert alert-danger">
-      <div class="fw-bold mb-1">Periksa kembali isian Anda:</div>
-      <ul class="mb-0">@foreach ($errors->all() as $e) <li>{{ $e }}</li> @endforeach</ul>
-    </div>
-  @endif
-
   <form method="post" action="{{ route('admin.orders.store') }}" id="orderForm" novalidate>
     @csrf
 
+    {{-- === INFORMASI SUPPLIER DAN PO === --}}
     <div class="card mb-3">
       <div class="card-body">
         <div class="row g-3">
@@ -43,7 +37,41 @@
       </div>
     </div>
 
-    {{-- Tabel stok per-PO --}}
+    {{-- === INFORMASI PRODUKSI DAN GUDANG === --}}
+    <div class="card mb-3">
+      <div class="card-header bg-light fw-semibold">
+        Informasi Produksi & Gudang
+      </div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label class="form-label">Peminta (Produksi) <span class="text-danger">*</span></label>
+            <input type="text" name="production_name" class="form-control" 
+                   value="{{ old('production_name') }}" placeholder="Masukkan nama produksi" required>
+          </div>
+
+          <div class="col-md-3">
+            <label class="form-label">Checker Gudang <span class="text-danger">*</span></label>
+            <input type="text" name="warehouse_admin_name" class="form-control" 
+                   value="{{ old('warehouse_admin_name') }}" placeholder="Masukkan nama admin gudang" required>
+          </div>
+
+          <div class="col-md-3">
+            <label class="form-label">Leader Gudang <span class="text-danger">*</span></label>
+            <input type="text" name="warehouse_leader_name" class="form-control" 
+                   value="{{ old('warehouse_leader_name') }}" placeholder="Masukkan nama leader gudang" required>
+          </div>
+
+          <div class="col-md-3">
+            <label class="form-label">Supply Chain Head</label>
+            <input type="text" name="supply_chain_head_name" class="form-control" 
+                   value="{{ old('supply_chain_head_name') }}" placeholder="Masukkan nama Supply Chain Head">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {{-- === TABEL STOK PER PO === --}}
     <div class="card">
       <div class="card-header d-flex justify-content-between align-items-center">
         <strong>Stok Tersedia (per-PO)</strong>
@@ -68,6 +96,7 @@
                 <th>Material</th>
                 <th style="width:100px">Unit</th>
                 <th>Supplier</th>
+                <th style="width:160px">No. PO</th>
                 <th style="width:160px" class="text-end">Tersedia</th>
                 <th style="width:180px" class="text-end">Qty Diminta</th>
                 <th style="width:260px">Catatan Item</th>
@@ -96,9 +125,9 @@
   </form>
 </div>
 
-{{-- URL template untuk AJAX (akan direplace __ID__) --}}
+{{-- URL template untuk AJAX --}}
 <input type="hidden" id="urlSupplierPOs" value="{{ route('admin.orders.supplier-pos', ['supplier' => '__ID__']) }}">
-<input type="hidden" id="urlPOStocks"    value="{{ route('admin.orders.po-stocks',   ['purchaseOrder' => '__ID__']) }}">
+<input type="hidden" id="urlPOStocks" value="{{ route('admin.orders.po-stocks', ['purchaseOrder' => '__ID__']) }}">
 
 @push('js')
 <script>
@@ -123,20 +152,8 @@
     updateSummary();
   }
 
-  function clearNamesInTable() {
-    tblBody.querySelectorAll('.hidStockId, .qtyInput, .notesInput').forEach(el => {
-      el.name = '';
-      if (el.classList.contains('qtyInput') || el.classList.contains('notesInput')) {
-        el.value = '';
-        el.disabled = true;
-      }
-    });
-    tblBody.querySelectorAll('.chkRow').forEach(chk => chk.checked = false);
-  }
-
   supplierSelect.addEventListener('change', async function(){
     const supplierId = this.value;
-    // reset dependent UI
     poSelect.innerHTML = '<option value="">— Pilih PO —</option>';
     poSelect.disabled = true;
     resetTable();
@@ -144,21 +161,17 @@
     if (!supplierId) return;
 
     const url = urlSupplierPOsTpl.replace('__ID__', encodeURIComponent(supplierId));
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('Gagal memuat daftar PO');
-      const data = await res.json();
+    const res = await fetch(url);
+    if (!res.ok) return alert('Gagal memuat daftar PO');
+    const data = await res.json();
 
-      (data.pos || []).forEach(po => {
-        const opt = document.createElement('option');
-        opt.value = po.id;
-        opt.textContent = po.po_number;
-        poSelect.appendChild(opt);
-      });
-      poSelect.disabled = false;
-    } catch (e) {
-      alert(e.message);
-    }
+    (data.pos || []).forEach(po => {
+      const opt = document.createElement('option');
+      opt.value = po.id;
+      opt.textContent = po.po_number;
+      poSelect.appendChild(opt);
+    });
+    poSelect.disabled = false;
   });
 
   poSelect.addEventListener('change', async function(){
@@ -167,100 +180,84 @@
     if (!poId) return;
 
     const url = urlPOStocksTpl.replace('__ID__', encodeURIComponent(poId));
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('Gagal memuat stok PO');
-      const data = await res.json();
+    const res = await fetch(url);
+    if (!res.ok) return alert('Gagal memuat stok PO');
+    const data = await res.json();
 
-      (data.items || []).forEach((row, idx) => {
-        const tr = document.createElement('tr');
+    (data.items || []).forEach((row, idx) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="text-center">
+          <input type="checkbox" class="chkRow">
+          <input type="hidden" class="hidStockId">
+        </td>
+        <td>${row.material_code ? row.material_code : '—'}</td>
+        <td class="fw-semibold">${row.material_name}</td>
+        <td>${row.unit ?? ''}</td>
+        <td>${row.supplier ?? '—'}</td>
+        <td class="text-center">${row.po_number ?? '—'}</td>
+        <td class="text-end availCell">${formatNumber(row.available)}</td>
+        <td>
+          <input type="number" min="0" step="0.0001" class="form-control text-end qtyInput" placeholder="0" disabled data-avail="${row.available}">
+        </td>
+        <td>
+          <input type="text" class="form-control notesInput" placeholder="Catatan item (opsional)" disabled>
+        </td>
+      `;
 
-        tr.innerHTML = `
-          <td class="text-center">
-            <input type="checkbox" class="chkRow">
-            <input type="hidden" class="hidStockId">
-          </td>
-          <td>${row.material_code ? row.material_code : '—'}</td>
-          <td class="fw-semibold">${row.material_name}</td>
-          <td>${row.unit ?? ''}</td>
-          <td>${row.supplier ?? '—'}</td>
-          <td class="text-end availCell">${formatNumber(row.available)}</td>
-          <td>
-            <input type="number" min="0" step="0.0001" class="form-control text-end qtyInput" placeholder="0" disabled data-avail="${row.available}">
-          </td>
-          <td>
-            <input type="text" class="form-control notesInput" placeholder="Catatan item (opsional)" disabled>
-          </td>
-        `;
+      const chk   = tr.querySelector('.chkRow');
+      const hidId = tr.querySelector('.hidStockId');
+      const qty   = tr.querySelector('.qtyInput');
+      const note  = tr.querySelector('.notesInput');
 
-        const chk   = tr.querySelector('.chkRow');
-        const hidId = tr.querySelector('.hidStockId');
-        const qty   = tr.querySelector('.qtyInput');
-        const note  = tr.querySelector('.notesInput');
+      chk.addEventListener('change', () => {
+        const sel = chk.checked;
+        qty.disabled  = !sel;
+        note.disabled = !sel;
+        qty.required  = sel;
 
-        chk.addEventListener('change', () => {
-          const sel = chk.checked;
-          qty.disabled  = !sel;
-          note.disabled = !sel;
-          qty.required  = sel;
-
-          if (sel) {
-            // set names saat dipilih
-            hidId.name = `items[${idx}][stock_id]`;
-            qty.name   = `items[${idx}][quantity]`;
-            note.name  = `items[${idx}][notes]`;
-            hidId.value = row.stock_id;
-
-            if (!qty.value || Number(qty.value) <= 0) {
-              qty.value = cleanDecimal(row.available);
-            }
-          } else {
-            // hapus nama agar tidak terkirim
-            hidId.name = '';
-            qty.name   = '';
-            note.name  = '';
-            qty.value  = '';
-            note.value = '';
-          }
-          updateSummary();
-        });
-
-        qty.addEventListener('input', () => {
-          clampQty(qty);
-          updateSummary();
-        });
-
-        tblBody.appendChild(tr);
+        if (sel) {
+          hidId.name = `items[${idx}][stock_id]`;
+          qty.name   = `items[${idx}][quantity]`;
+          note.name  = `items[${idx}][notes]`;
+          hidId.value = row.stock_id;
+          if (!qty.value || Number(qty.value) <= 0) qty.value = cleanDecimal(row.available);
+        } else {
+          hidId.name = '';
+          qty.name   = '';
+          note.name  = '';
+          qty.value  = '';
+          note.value = '';
+        }
+        updateSummary();
       });
 
-    } catch (e) {
-      alert(e.message);
-    }
+      qty.addEventListener('input', () => {
+        clampQty(qty);
+        updateSummary();
+      });
+
+      tblBody.appendChild(tr);
+    });
   });
 
-  // Header checkbox
   chkHeader.addEventListener('change', () => {
     tblBody.querySelectorAll('.chkRow').forEach(chk => {
-      if (chk.checked !== chkHeader.checked) {
-        chk.click(); // trigger logic set/unset names+fields
-      }
+      if (chk.checked !== chkHeader.checked) chk.click();
     });
     updateSummary();
   });
 
-  // Pilih semua
   btnSelectAll.addEventListener('click', () => {
     chkHeader.checked = true;
     chkHeader.dispatchEvent(new Event('change'));
   });
 
-  // Bersihkan semua
   btnClear.addEventListener('click', () => {
     chkHeader.checked = false;
     chkHeader.dispatchEvent(new Event('change'));
   });
 
-  // Submit guard
   form.addEventListener('submit', (e) => {
     const picked = tblBody.querySelectorAll('.hidStockId[name^="items["]').length;
     if (!picked) {
@@ -271,7 +268,6 @@
     tblBody.querySelectorAll('.qtyInput[name^="items["]').forEach(q => clampQty(q));
   });
 
-  // Helpers
   function clampQty(input) {
     const avail = Number(input.dataset.avail || 0);
     let val = Number((input.value || '0').toString().replace(',', '.'));

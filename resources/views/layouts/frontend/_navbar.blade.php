@@ -1,6 +1,6 @@
 <header class="navbar navbar-expand-md navbar-light">
     <div class="container-xl">
-        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbar-menu">
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar-menu">
             <span class="navbar-toggler-icon"></span>
         </button>
         {{-- <a href="#" class="navbar-brand navbar-brand-autodark d-none-navbar-horizontal pr-0 pr-md-3">
@@ -30,7 +30,7 @@
                     </a>
                 </div>
                 <div class="nav-item dropdown">
-                    <a href="#" class="nav-link d-flex lh-1 text-reset p-0" data-toggle="dropdown">
+                    <a href="#" class="nav-link d-flex lh-1 text-reset p-0" data-bs-toggle="dropdown">
                         <span class="avatar" style="background-image: url({{ Auth::user()->avatar }})"></span>
                         <div class="d-none d-xl-block pl-2">
                             <div>{{ Auth::user()->name }}</div>
