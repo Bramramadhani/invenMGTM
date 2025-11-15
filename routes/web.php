@@ -1,8 +1,9 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Auth;
 use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\Auth\ForgotPasswordController;
+use App\Http\Controllers\Auth\ResetPasswordController;
 use App\Http\Controllers\Admin\{
     DashboardController,
     SupplierController,
@@ -26,12 +27,25 @@ use App\Http\Controllers\Admin\{
 Route::get('/', fn () => redirect('login'));
 
 // ==============================
-// AUTH
+// AUTH (tanpa Auth::routes())
 // ==============================
-Auth::routes();
+
+// Login & Logout
 Route::get('/login',  [LoginController::class, 'showLoginForm'])->name('login');
 Route::post('/login', [LoginController::class, 'login']);
-Route::post('/logout', [LoginController::class, 'logout'])->name('logout')->middleware('auth');
+Route::post('/logout', [LoginController::class, 'logout'])
+    ->name('logout')
+    ->middleware('auth');
+
+// Password Reset (Forgot Password)
+Route::get('password/reset', [ForgotPasswordController::class, 'showLinkRequestForm'])
+    ->name('password.request');
+Route::post('password/email', [ForgotPasswordController::class, 'sendResetLinkEmail'])
+    ->name('password.email');
+Route::get('password/reset/{token}', [ResetPasswordController::class, 'showResetForm'])
+    ->name('password.reset');
+Route::post('password/reset', [ResetPasswordController::class, 'reset'])
+    ->name('password.update');
 
 // ==============================
 // ADMIN AREA
@@ -56,7 +70,10 @@ Route::middleware(['auth'])
         Route::put('/setting/{user}', [SettingController::class, 'update'])->name('setting.update');
 
         // TRANSACTION PRODUCT (lama)
-        Route::get('/transaction-product', [TransactionController::class, 'product'])->name('transaction.product');
+        Route::get(
+            '/transaction-product',
+            [TransactionController::class, 'product']
+        )->name('transaction.product');
 
         // ==============================
         // PURCHASE ORDERS
@@ -65,53 +82,80 @@ Route::middleware(['auth'])
 
         // === Barang Reject ===
         // Single reject (per item)
-        Route::post('/purchase-orders/{purchaseOrder}/reject', [PurchaseOrderRejectController::class, 'store'])
-            ->name('purchase-orders.reject');
-
-        // Multiple reject (modal satu tombol)
-        // NOTE: sekarang menerima {purchaseOrder} untuk konsisten dengan form action yang anda gunakan
-        //Route::post('/purchase-orders/{purchaseOrder}/reject-multiple', [PurchaseOrderRejectController::class, 'rejectMultiple'])
-            //->name('purchase-orders.reject-multiple');
+        Route::post(
+            '/purchase-orders/{purchaseOrder}/reject',
+            [PurchaseOrderRejectController::class, 'store']
+        )->name('purchase-orders.reject');
 
         // === Purchase Receipt (Parsial) ===
-        Route::get('purchase-orders/{purchaseOrder}/receipts/create', [PurchaseReceiptController::class, 'create'])
-            ->name('receipts.create');
-        Route::post('purchase-orders/{purchaseOrder}/receipts', [PurchaseReceiptController::class, 'store'])
-            ->name('receipts.store');
-        Route::post('receipts/{receipt}/post', [PurchaseReceiptPostingController::class, 'post'])
-            ->name('receipts.post');
-        Route::delete('receipts/{receipt}', [PurchaseReceiptDeleteController::class, 'delete'])
-            ->name('receipts.delete');
+        Route::get(
+            'purchase-orders/{purchaseOrder}/receipts/create',
+            [PurchaseReceiptController::class, 'create']
+        )->name('receipts.create');
+
+        Route::post(
+            'purchase-orders/{purchaseOrder}/receipts',
+            [PurchaseReceiptController::class, 'store']
+        )->name('receipts.store');
+
+        Route::post(
+            'receipts/{receipt}/post',
+            [PurchaseReceiptPostingController::class, 'post']
+        )->name('receipts.post');
+
+        Route::delete(
+            'receipts/{receipt}',
+            [PurchaseReceiptDeleteController::class, 'delete']
+        )->name('receipts.delete');
 
         // === Receipt PDF ===
-        Route::get('receipts/{receipt}/pdf', [PurchaseReceiptController::class, 'pdf'])
-            ->name('receipts.pdf');
-        Route::get('purchase-orders/{purchaseOrder}/receipts/pdf-merged', [PurchaseReceiptController::class, 'pdfMerged'])
-            ->name('receipts.pdf-merged');
+        Route::get(
+            'receipts/{receipt}/pdf',
+            [PurchaseReceiptController::class, 'pdf']
+        )->name('receipts.pdf');
+
+        Route::get(
+            'purchase-orders/{purchaseOrder}/receipts/pdf-merged',
+            [PurchaseReceiptController::class, 'pdfMerged']
+        )->name('receipts.pdf-merged');
 
         // ==============================
         // ORDERS
         // ==============================
-        Route::get('/orders/supplier/{supplier}/pos', [OrderController::class, 'supplierPOs'])
-            ->name('orders.supplier-pos');
-        Route::get('/orders/po/{purchaseOrder}/stocks', [OrderController::class, 'poStocks'])
-            ->name('orders.po-stocks');
+        Route::get(
+            '/orders/supplier/{supplier}/pos',
+            [OrderController::class, 'supplierPOs']
+        )->name('orders.supplier-pos');
+
+        Route::get(
+            '/orders/po/{purchaseOrder}/stocks',
+            [OrderController::class, 'poStocks']
+        )->name('orders.po-stocks');
+
         Route::resource('/orders', OrderController::class)
             ->only(['index', 'show', 'create', 'store', 'update', 'destroy'])
             ->names('orders');
 
         // Receipt PDF untuk Permintaan Barang
-        Route::get('/orders/{order}/receipt-pdf', [OrderController::class, 'receiptPdf'])
-            ->name('orders.receipt-pdf');
+        Route::get(
+            '/orders/{order}/receipt-pdf',
+            [OrderController::class, 'receiptPdf']
+        )->name('orders.receipt-pdf');
 
         // ==============================
         // PRODUCTION ISSUE
         // ==============================
         Route::resource('/issues', ProductionIssueController::class)->only(['show']);
-        Route::post('issues/{issue}/post', [ProductionIssuePostingController::class, 'post'])
-            ->name('issues.post');
-        Route::get('issues/{issue}/pdf', [ProductionIssueController::class, 'pdf'])
-            ->name('issues.pdf');
+
+        Route::post(
+            'issues/{issue}/post',
+            [ProductionIssuePostingController::class, 'post']
+        )->name('issues.post');
+
+        Route::get(
+            'issues/{issue}/pdf',
+            [ProductionIssueController::class, 'pdf']
+        )->name('issues.pdf');
 
         // ==============================
         // OUTGOING
