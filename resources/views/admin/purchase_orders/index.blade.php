@@ -30,7 +30,9 @@
           <tbody>
           @forelse ($purchaseOrders as $po)
             <tr>
-              <td>{{ $loop->iteration + ($purchaseOrders->currentPage() - 1) * $purchaseOrders->perPage() }}</td>
+              <td>
+                {{ $loop->iteration + ($purchaseOrders->currentPage() - 1) * $purchaseOrders->perPage() }}
+              </td>
 
               <td class="fw-semibold">
                 {{ $po->po_number ?? '—' }}
@@ -57,26 +59,34 @@
                 @endif
               </td>
 
-              <td class="text-end">
-                <div class="btn-group">
-                  <a href="{{ route('admin.purchase-orders.show', $po->id) }}" class="btn btn-sm btn-outline-secondary">
+              <td class="text-end align-middle">
+                <div class="btn-group btn-group-sm" role="group" aria-label="Aksi Purchase Order">
+                  {{-- Detail --}}
+                  <a href="{{ route('admin.purchase-orders.show', $po->id) }}"
+                     class="btn btn-outline-secondary">
                     <i class="fas fa-eye"></i> Detail
                   </a>
-                  <a href="{{ route('admin.purchase-orders.edit', $po->id) }}" class="btn btn-sm btn-outline-primary">
+
+                  {{-- Edit --}}
+                  <a href="{{ route('admin.purchase-orders.edit', $po->id) }}"
+                     class="btn btn-outline-primary">
                     <i class="fas fa-edit"></i> Edit
                   </a>
+
                   {{-- Terima Parsial (buat Receipt Draft) --}}
-                  <a href="{{ route('admin.receipts.create', $po) }}" class="btn btn-sm btn-outline-success">
+                  <a href="{{ route('admin.receipts.create', $po) }}"
+                     class="btn btn-outline-success">
                     <i class="fas fa-inbox"></i> Terima
                   </a>
+
                   {{-- Hapus --}}
                   <form action="{{ route('admin.purchase-orders.destroy', $po->id) }}"
                         method="post"
-                        onsubmit="return confirm('Hapus PO ini? Tindakan tidak dapat dibatalkan.')"
-                        class="ms-2">
+                        class="d-inline m-0"
+                        onsubmit="return confirm('Hapus PO ini? Tindakan tidak dapat dibatalkan.')">
                     @csrf
                     @method('DELETE')
-                    <button class="btn btn-sm btn-outline-danger">
+                    <button type="submit" class="btn btn-outline-danger">
                       <i class="fas fa-trash"></i> Hapus
                     </button>
                   </form>
@@ -85,7 +95,9 @@
             </tr>
           @empty
             <tr>
-              <td colspan="7" class="text-center text-muted py-4">Belum ada Purchase Order.</td>
+              <td colspan="7" class="text-center text-muted py-4">
+                Belum ada Purchase Order.
+              </td>
             </tr>
           @endforelse
           </tbody>
@@ -96,7 +108,8 @@
     @if ($purchaseOrders->hasPages())
       <div class="card-footer d-flex justify-content-between align-items-center">
         <div class="small text-muted">
-          Menampilkan {{ $purchaseOrders->firstItem() }}–{{ $purchaseOrders->lastItem() }} dari {{ $purchaseOrders->total() }} PO
+          Menampilkan {{ $purchaseOrders->firstItem() }}–{{ $purchaseOrders->lastItem() }}
+          dari {{ $purchaseOrders->total() }} PO
         </div>
         {{ $purchaseOrders->onEachSide(1)->links() }}
       </div>
