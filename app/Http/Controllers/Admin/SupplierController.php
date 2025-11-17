@@ -6,6 +6,8 @@ use App\Models\Supplier;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\SupplierRequest;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Database\QueryException;
 
 class SupplierController extends Controller
 {
@@ -38,7 +40,7 @@ class SupplierController extends Controller
      * Update the specified resource in storage.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @param  int  $id
+     * @param  \App\Models\Supplier      $supplier
      * @return \Illuminate\Http\Response
      */
     public function update(SupplierRequest $request, Supplier $supplier)
@@ -51,13 +53,40 @@ class SupplierController extends Controller
     /**
      * Remove the specified resource from storage.
      *
-     * @param  int  $id
+     * @param  \App\Models\Supplier  $supplier
      * @return \Illuminate\Http\Response
      */
     public function destroy(Supplier $supplier)
     {
-        $supplier->delete();
+        // 1. Cek apakah supplier sudah dipakai di tabel production_issue_items
+        $dipakaiDiProductionIssue = DB::table('production_issue_items')
+            ->where('supplier_id', $supplier->id)
+            ->exists();
 
-        return back()->with('toast_success', 'Supplier Berhasil Dihapus');
+        if ($dipakaiDiProductionIssue) {
+            // Kalau sudah dipakai, jangan hapus, kasih pesan manis ke user
+            return back()->with(
+                'toast_error',
+                'Supplier tidak dapat dihapus karena sudah digunakan di transaksi Production Issue.'
+            );
+        }
+
+        try {
+            // 2. Kalau belum dipakai, baru dihapus
+            $supplier->delete();
+
+            return back()->with('toast_success', 'Supplier Berhasil Dihapus');
+        } catch (QueryException $e) {
+            // Kode 23000 = masalah relasi / foreign key
+            if ($e->getCode() === '23000') {
+                return back()->with(
+                    'toast_error',
+                    'Supplier tidak dapat dihapus karena masih berelasi dengan data lain.'
+                );
+            }
+
+            // Kalau error lain, lempar lagi biar kelihatan saat debug
+            throw $e;
+        }
     }
 }
