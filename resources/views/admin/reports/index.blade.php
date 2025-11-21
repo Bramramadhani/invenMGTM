@@ -23,8 +23,15 @@
     border:none !important; border-right:1px solid #dee2e6 !important;
     margin:0; border-radius:0 !important;
   }
-  .control-shell .segmented .btn:last-child{border-right:0 !important; border-top-right-radius:.375rem !important; border-bottom-right-radius:.375rem !important;}
-  .control-shell .segmented .btn:first-of-type{border-top-left-radius:.375rem !important; border-bottom-left-radius:.375rem !important;}
+  .control-shell .segmented .btn:last-child{
+    border-right:0 !important;
+    border-top-right-radius:.375rem !important;
+    border-bottom-right-radius:.375rem !important;
+  }
+  .control-shell .segmented .btn:first-of-type{
+    border-top-left-radius:.375rem !important;
+    border-bottom-left-radius:.375rem !important;
+  }
   .segmented .btn-check:checked + .btn{ background:#0d6efd; color:#fff; }
 
   .form-label.small-label{ font-size:.82rem; color:#6c757d; margin-bottom:.25rem; }
@@ -38,7 +45,7 @@
     background-size: 16px 12px;
   }
   .supplier-select option[value=""] { font-weight:500; }
-  .supplier-select optgroup { 
+  .supplier-select optgroup {
     font-weight:400;
     color:#6c757d;
     font-style:normal;
@@ -89,8 +96,7 @@
           <label class="form-label small-label">Supplier</label>
           <select class="form-select js-auto supplier-select" name="supplier_id" style="width:100%">
             <option value="">— Semua Supplier —</option>
-            
-            {{-- Frequently Used Suppliers (first 10) --}}
+
             @if($suppliers->take(10)->count() > 0)
               <optgroup label="Supplier Utama">
                 @foreach ($suppliers->take(10) as $s)
@@ -100,8 +106,7 @@
                 @endforeach
               </optgroup>
             @endif
-            
-            {{-- Remaining Suppliers --}}
+
             @if($suppliers->count() > 10)
               <optgroup label="Supplier Lainnya">
                 @foreach ($suppliers->slice(10) as $s)
@@ -140,12 +145,11 @@
             <input class="form-check-input js-auto" type="checkbox" value="1" id="show_names" name="show_names"
                    {{ request('show_names') ? 'checked' : '' }}>
             <label class="form-check-label small" for="show_names">
-              Tampilkan: <strong>Produksi / Checker / Leader / Supply Chain Head</strong>
+              Tampilkan: <strong>Produksi / Leader Produksi / Checker / Leader Gudang / Supply Chain Head</strong>
             </label>
           </div>
 
           <div class="d-flex gap-8">
-            {{-- Hapus tombol Terapkan: auto submit --}}
             <a href="{{ route('admin.reports.index') }}" class="btn btn-outline-secondary">
               <i class="fas fa-undo me-1"></i> Reset
             </a>
@@ -153,12 +157,12 @@
               href="{{ route('admin.reports.export', array_merge(
                 request()->except(['page', 'out_page', 'in_page']),
                 [
-                  'date_from' => $dateFrom,
-                  'date_to'   => $dateTo,
+                  'date_from'   => $dateFrom,
+                  'date_to'     => $dateTo,
                   'supplier_id' => $supplierId,
-                  'q'         => $q,
-                  'type'      => $type,
-                  'show_names'=> request('show_names') ? 1 : 0,
+                  'q'           => $q,
+                  'type'        => $type,
+                  'show_names'  => request('show_names') ? 1 : 0,
                 ]
               )) }}"
               class="btn btn-success"
@@ -211,47 +215,58 @@
                 <th class="nowrap" style="width:130px;">Tanggal</th>
                 <th class="text-center" style="width:140px;">Supplier</th>
                 <th class="text-center" style="width:120px;">No. PO</th>
+                <th class="text-center" style="width:140px;">Style</th>
                 <th class="text-center" style="width:90px;">Kode</th>
                 <th class="text-center">Material</th>
                 <th class="text-center" style="width:80px;">Unit</th>
                 <th class="text-end" style="width:110px;">Qty</th>
                 <th class="text-truncate">Catatan</th>
                 @if(request('show_names'))
-                  <th class="text-center" style="width:180px;">Produksi</th>
-                  <th class="text-center" style="width:180px;">Checker</th>
-                  <th class="text-center" style="width:180px;">Leader</th>
-                  <th class="text-center" style="width:180px;">Supply Chain Head</th>
+                  <th class="text-center" style="width:160px;">Checker Produksi</th>
+                  <th class="text-center" style="width:160px;">Leader Produksi</th>
+                  <th class="text-center" style="width:160px;">Checker Gudang</th>
+                  <th class="text-center" style="width:160px;">Leader Gudang</th>
+                  <th class="text-center" style="width:160px;">Supply Chain Head</th>
                 @endif
               </tr>
             </thead>
             <tbody>
               @forelse ($outRows as $r)
                 @php
-                  $supplier = $r->supplier->name ?? '—';
-                  $code     = $r->stock->material_code ?? '—';
-                  $unit     = $r->unit ?? ($r->stock->unit ?? '—');
-                  $material = $r->material_name ?? ($r->stock->material_name ?? '—');
-                  $order    = $r->resolvedOrder ?? null;
+                  $supplier  = $r->supplier->name ?? '—';
+                  $code      = $r->stock->material_code ?? '—';
+                  $unit      = $r->unit ?? ($r->stock->unit ?? '—');
+                  $material  = $r->material_name ?? ($r->stock->material_name ?? '—');
+                  $order     = $r->resolvedOrder;
+                  $styleObj  = optional(optional($order)->purchaseOrderStyle);
+                  $styleName = $styleObj->style_name
+                    ?? $styleObj->name
+                    ?? $styleObj->nama_style
+                    ?? null;
                 @endphp
                 <tr>
                   <td class="nowrap">{{ optional($r->moved_at)->format('d-m-Y H:i') }}</td>
                   <td class="text-center">{{ $supplier }}</td>
                   <td class="text-center">{{ $r->po_number ?: '—' }}</td>
+                  <td class="text-center">{{ $styleName ?: '—' }}</td>
                   <td class="text-center">{{ $code }}</td>
                   <td class="text-center">{{ $material }}</td>
                   <td class="text-center">{{ $unit ?: '—' }}</td>
                   <td class="text-end">{{ fmt_qty($r->quantity) }}</td>
                   <td class="text-truncate">{{ $r->notes ?: '—' }}</td>
                   @if(request('show_names'))
-                    <td class="text-center">{{ $order->production_name ?? '—' }}</td>
-                    <td class="text-center">{{ $order->warehouse_admin_name ?? '—' }}</td>
-                    <td class="text-center">{{ $order->warehouse_leader_name ?? '—' }}</td>
-                    <td class="text-center">{{ $order->supply_chain_head_name ?? '—' }}</td>
+                    <td class="text-center">{{ optional($order)->production_name ?? '—' }}</td>
+                    <td class="text-center">{{ optional($order)->production_leader_name ?? '—' }}</td>
+                    <td class="text-center">{{ optional($order)->warehouse_admin_name ?? '—' }}</td>
+                    <td class="text-center">{{ optional($order)->warehouse_leader_name ?? '—' }}</td>
+                    <td class="text-center">{{ optional($order)->supply_chain_head_name ?? '—' }}</td>
                   @endif
                 </tr>
               @empty
                 <tr>
-                  <td colspan="{{ request('show_names') ? 12 : 8 }}" class="text-center text-muted">Tidak ada data.</td>
+                  <td colspan="{{ request('show_names') ? 14 : 9 }}" class="text-center text-muted">
+                    Tidak ada data.
+                  </td>
                 </tr>
               @endforelse
             </tbody>

@@ -16,6 +16,7 @@ use Maatwebsite\Excel\Concerns\WithMultipleSheets;
 use Maatwebsite\Excel\Concerns\WithTitle;
 use Maatwebsite\Excel\Events\AfterSheet;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
@@ -56,7 +57,7 @@ class StockMovementsExport implements WithMultipleSheets
 }
 
 /**
- * Sheet OUT (Pengeluaran) — tampil jam + 3 nama (opsional)
+ * Sheet OUT (Pengeluaran) — tampil jam + nama Produksi & Gudang (opsional)
  */
 class MovementsOutSheetExport implements
     FromCollection, WithHeadings, WithMapping, WithColumnWidths, WithStyles, WithEvents, WithCustomStartCell, WithTitle
@@ -81,19 +82,28 @@ class MovementsOutSheetExport implements
             ->whereDate('moved_at', '>=', $this->dateFrom)
             ->whereDate('moved_at', '<=', $this->dateTo);
 
-        if ($this->supplierId) $base->where('supplier_id', $this->supplierId);
-        if ($this->q !== null && trim($this->q) !== '') $base->search($this->q);
+        if ($this->supplierId) {
+            $base->where('supplier_id', $this->supplierId);
+        }
+        if ($this->q !== null && trim($this->q) !== '') {
+            $base->search($this->q);
+        }
 
-        return $base->orderBy('moved_at','desc')->orderBy('id','desc')->get();
+        return $base
+            ->orderBy('moved_at', 'desc')
+            ->orderBy('id', 'desc')
+            ->get();
     }
 
     public function headings(): array
     {
+        // Tambah kolom Style + Leader Produksi
         $head = [
             'Tanggal',   // dengan jam
             'Jenis',
             'Supplier',
             'No PO',
+            'Style',
             'Kode',
             'Material',
             'Unit',
@@ -102,7 +112,8 @@ class MovementsOutSheetExport implements
         ];
 
         if ($this->showNames) {
-            $head[] = 'Produksi';
+            $head[] = 'Checker Produksi';
+            $head[] = 'Leader Produksi';
             $head[] = 'Checker Gudang';
             $head[] = 'Leader Gudang';
             $head[] = 'Supply Chain Head';
@@ -118,24 +129,34 @@ class MovementsOutSheetExport implements
         $unit     = $r->unit ?? (optional($r->stock)->unit ?? '');
         $material = $r->material_name ?? (optional($r->stock)->material_name ?? $r->material);
 
+        $order    = $r->resolvedOrder;
+
+        // Ambil nama style dari Order -> purchaseOrderStyle (fleksibel kolom)
+        $styleObj  = optional(optional($order)->purchaseOrderStyle);
+        $styleName = $styleObj->style_name
+            ?? $styleObj->name
+            ?? $styleObj->nama_style
+            ?? '';
+
         $row = [
             optional($r->moved_at)?->format('Y-m-d H:i:s'), // dengan jam
             $r->direction,
             $supplier,
             (string) $r->po_number,
+            $styleName,
             $code,
             $material,
             $unit,
-            (float) $r->quantity, // kita format TANPA desimal di AfterSheet
+            (float) $r->quantity,
             (string) ($r->notes ?? ''),
         ];
 
         if ($this->showNames) {
-            $ord   = $r->resolvedOrder;
-            $row[] = $ord->production_name       ?? '';
-            $row[] = $ord->warehouse_admin_name  ?? '';
-            $row[] = $ord->warehouse_leader_name ?? '';
-            $row[] = $ord->supply_chain_head_name ?? '';
+            $row[] = optional($order)->production_name         ?? '';
+            $row[] = optional($order)->production_leader_name  ?? '';
+            $row[] = optional($order)->warehouse_admin_name    ?? '';
+            $row[] = optional($order)->warehouse_leader_name   ?? '';
+            $row[] = optional($order)->supply_chain_head_name  ?? '';
         }
 
         return $row;
@@ -143,29 +164,56 @@ class MovementsOutSheetExport implements
 
     public function columnWidths(): array
     {
+        // Susunan: A: Tgl, B:Jenis, C:Supplier, D:No PO, E:Style, F:Kode, G:Material, H:Unit, I:Qty, J:Catatan
         $widths = [
-            'A' => 20, 'B' => 10, 'C' => 22, 'D' => 14, 'E' => 14,
-            'F' => 34, 'G' => 9,  'H' => 12, 'I' => 36,
+            'A' => 20,
+            'B' => 10,
+            'C' => 22,
+            'D' => 14,
+            'E' => 22, // Style
+            'F' => 14,
+            'G' => 34,
+            'H' => 9,
+            'I' => 12,
+            'J' => 36,
         ];
+
         if ($this->showNames) {
+            // K:Produksi, L:Leader Produksi, M:Checker, N:Leader Gudang, O:Supply Chain Head
             $widths += [
-                'J' => 22,  // Produksi
-                'K' => 22,  // Checker Gudang
-                'L' => 22,  // Leader Gudang
-                'M' => 22,  // Supply Chain Head
+                'K' => 22,
+                'L' => 22,
+                'M' => 22,
+                'N' => 22,
+                'O' => 22,
             ];
         }
+
         return $widths;
     }
 
     public function styles(Worksheet $sheet)
     {
-        $lastCol = $this->showNames ? 'M' : 'I';
+        $lastColIndex = count($this->headings());
+        $lastCol      = Coordinate::stringFromColumnIndex($lastColIndex);
+
         $sheet->getStyle("A4:{$lastCol}4")->applyFromArray([
-            'font'=>['bold'=>true],
-            'fill'=>['fillType'=>Fill::FILL_SOLID,'startColor'=>['rgb'=>'F3F4F6']],
-            'alignment'=>['horizontal'=>Alignment::HORIZONTAL_CENTER,'vertical'=>Alignment::VERTICAL_CENTER,'wrapText'=>true],
-            'borders'=>['allBorders'=>['borderStyle'=>Border::BORDER_THIN,'color'=>['rgb'=>'DDDDDD']]],
+            'font'      => ['bold' => true],
+            'fill'      => [
+                'fillType'   => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'F3F4F6'],
+            ],
+            'alignment' => [
+                'horizontal' => Alignment::HORIZONTAL_CENTER,
+                'vertical'   => Alignment::VERTICAL_CENTER,
+                'wrapText'   => true,
+            ],
+            'borders'   => [
+                'allBorders' => [
+                    'borderStyle' => Border::BORDER_THIN,
+                    'color'       => ['rgb' => 'DDDDDD'],
+                ],
+            ],
         ]);
         $sheet->getRowDimension(4)->setRowHeight(22);
     }
@@ -174,33 +222,42 @@ class MovementsOutSheetExport implements
     {
         return [
             AfterSheet::class => function (AfterSheet $e) {
-                $s       = $e->sheet->getDelegate();
-                $lastCol = $this->showNames ? 'M' : 'I';
+                $s             = $e->sheet->getDelegate();
+                $lastColIndex  = count($this->headings());
+                $lastCol       = Coordinate::stringFromColumnIndex($lastColIndex);
 
                 // Judul
                 $s->setCellValue('A1', 'LAPORAN PERGERAKAN STOK — PENGELUARAN (OUT)');
                 $s->mergeCells("A1:{$lastCol}1");
                 $s->getStyle('A1')->applyFromArray([
-                    'font'=>['bold'=>true,'size'=>14,'color'=>['rgb'=>'FFFFFF']],
-                    'alignment'=>['horizontal'=>Alignment::HORIZONTAL_CENTER,'vertical'=>Alignment::VERTICAL_CENTER],
-                    'fill'=>['fillType'=>Fill::FILL_SOLID,'startColor'=>['rgb'=>'2E7D32']],
+                    'font'      => ['bold' => true, 'size' => 14, 'color' => ['rgb' => 'FFFFFF']],
+                    'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+                    'fill'      => [
+                        'fillType'   => Fill::FILL_SOLID,
+                        'startColor' => ['rgb' => '2E7D32'],
+                    ],
                 ]);
                 $s->getRowDimension(1)->setRowHeight(28);
 
                 // Periode
-                $period = 'Periode '.Carbon::parse($this->dateFrom)->format('d-m-Y').' s/d '.Carbon::parse($this->dateTo)->format('d-m-Y');
+                $period = 'Periode '
+                    . Carbon::parse($this->dateFrom)->format('d-m-Y')
+                    . ' s/d '
+                    . Carbon::parse($this->dateTo)->format('d-m-Y');
+
                 $s->setCellValue('A2', $period);
                 $s->mergeCells("A2:{$lastCol}2");
                 $s->getStyle('A2')->applyFromArray([
-                    'font'=>['bold'=>true,'size'=>11],
-                    'alignment'=>['horizontal'=>Alignment::HORIZONTAL_CENTER,'vertical'=>Alignment::VERTICAL_CENTER],
+                    'font'      => ['bold' => true, 'size' => 11],
+                    'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
                 ]);
 
                 // Info filter
                 $info = 'Jenis: OUT'
-                      . ($this->supplierId ? " | Supplier ID: {$this->supplierId}" : '')
-                      . ($this->q ? " | Cari: {$this->q}" : '')
-                      . ($this->showNames ? " | Tampilkan 3 nama" : '');
+                    . ($this->supplierId ? " | Supplier ID: {$this->supplierId}" : '')
+                    . ($this->q ? " | Cari: {$this->q}" : '')
+                    . ($this->showNames ? " | Tampilkan nama Produksi & Gudang" : '');
+
                 $s->setCellValue('A3', $info);
                 $s->mergeCells("A3:{$lastCol}3");
 
@@ -208,25 +265,44 @@ class MovementsOutSheetExport implements
                 $maxRow = $s->getHighestRow();
                 if ($maxRow >= 5) {
                     $s->getStyle("A4:{$lastCol}{$maxRow}")->applyFromArray([
-                        'borders'=>['allBorders'=>['borderStyle'=>Border::BORDER_HAIR,'color'=>['rgb'=>'CCCCCC']]],
-                        'alignment'=>['vertical'=>Alignment::VERTICAL_CENTER],
+                        'borders'   => [
+                            'allBorders' => [
+                                'borderStyle' => Border::BORDER_HAIR,
+                                'color'       => ['rgb' => 'CCCCCC'],
+                            ],
+                        ],
+                        'alignment' => [
+                            'vertical' => Alignment::VERTICAL_CENTER,
+                        ],
                     ]);
                 }
 
                 // Format kolom: tanggal + qty tanpa desimal
-                $s->getStyle("A5:A{$maxRow}")->getNumberFormat()->setFormatCode('dd-mm-yyyy hh:mm');  // dengan jam
-                $s->getStyle("H5:H{$maxRow}")->getNumberFormat()->setFormatCode(NumberFormat::FORMAT_NUMBER); // tanpa desimal
-                $s->getStyle("H5:H{$maxRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+                if ($maxRow >= 5) {
+                    // A: tanggal+jam
+                    $s->getStyle("A5:A{$maxRow}")
+                        ->getNumberFormat()
+                        ->setFormatCode('dd-mm-yyyy hh:mm');
+
+                    // I: Qty (tanpa desimal, rata kanan)
+                    $s->getStyle("I5:I{$maxRow}")
+                        ->getNumberFormat()
+                        ->setFormatCode(NumberFormat::FORMAT_NUMBER);
+                    $s->getStyle("I5:I{$maxRow}")
+                        ->getAlignment()
+                        ->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+                }
 
                 // Autofilter + freeze
                 $s->setAutoFilter("A4:{$lastCol}4");
                 $s->freezePane('A5');
 
                 // Ratakan center kolom kecil
-                foreach (['B','D','E','G'] as $col) {
+                foreach (['B', 'D', 'E', 'F', 'H'] as $col) {
                     if (ord($col) <= ord($lastCol)) {
                         $s->getStyle("{$col}5:{$col}{$maxRow}")
-                          ->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+                            ->getAlignment()
+                            ->setHorizontal(Alignment::HORIZONTAL_CENTER);
                     }
                 }
             },
@@ -235,7 +311,7 @@ class MovementsOutSheetExport implements
 }
 
 /**
- * Sheet IN (Pemasukan) — tanggal tanpa jam, tidak ada kolom 3 nama
+ * Sheet IN (Pemasukan) — tanggal tanpa jam, tidak ada kolom nama
  */
 class MovementsInSheetExport implements
     FromCollection, WithHeadings, WithMapping, WithColumnWidths, WithStyles, WithEvents, WithCustomStartCell, WithTitle
@@ -259,10 +335,17 @@ class MovementsInSheetExport implements
             ->whereDate('moved_at', '>=', $this->dateFrom)
             ->whereDate('moved_at', '<=', $this->dateTo);
 
-        if ($this->supplierId) $base->where('supplier_id', $this->supplierId);
-        if ($this->q !== null && trim($this->q) !== '') $base->search($this->q);
+        if ($this->supplierId) {
+            $base->where('supplier_id', $this->supplierId);
+        }
+        if ($this->q !== null && trim($this->q) !== '') {
+            $base->search($this->q);
+        }
 
-        return $base->orderBy('moved_at','desc')->orderBy('id','desc')->get();
+        return $base
+            ->orderBy('moved_at', 'desc')
+            ->orderBy('id', 'desc')
+            ->get();
     }
 
     public function headings(): array
@@ -295,7 +378,7 @@ class MovementsInSheetExport implements
             $code,
             $material,
             $unit,
-            (float) $r->quantity, // kita format TANPA desimal di AfterSheet
+            (float) $r->quantity,
             (string) ($r->notes ?? ''),
         ];
     }
@@ -303,17 +386,37 @@ class MovementsInSheetExport implements
     public function columnWidths(): array
     {
         return [
-            'A'=>16,'B'=>10,'C'=>22,'D'=>14,'E'=>14,'F'=>34,'G'=>9,'H'=>12,'I'=>36,
+            'A' => 16,
+            'B' => 10,
+            'C' => 22,
+            'D' => 14,
+            'E' => 14,
+            'F' => 34,
+            'G' => 9,
+            'H' => 12,
+            'I' => 36,
         ];
     }
 
     public function styles(Worksheet $sheet)
     {
         $sheet->getStyle("A4:I4")->applyFromArray([
-            'font'=>['bold'=>true],
-            'fill'=>['fillType'=>Fill::FILL_SOLID,'startColor'=>['rgb'=>'F3F4F6']],
-            'alignment'=>['horizontal'=>Alignment::HORIZONTAL_CENTER,'vertical'=>Alignment::VERTICAL_CENTER,'wrapText'=>true],
-            'borders'=>['allBorders'=>['borderStyle'=>Border::BORDER_THIN,'color'=>['rgb'=>'DDDDDD']]],
+            'font'      => ['bold' => true],
+            'fill'      => [
+                'fillType'   => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'F3F4F6'],
+            ],
+            'alignment' => [
+                'horizontal' => Alignment::HORIZONTAL_CENTER,
+                'vertical'   => Alignment::VERTICAL_CENTER,
+                'wrapText'   => true,
+            ],
+            'borders'   => [
+                'allBorders' => [
+                    'borderStyle' => Border::BORDER_THIN,
+                    'color'       => ['rgb' => 'DDDDDD'],
+                ],
+            ],
         ]);
         $sheet->getRowDimension(4)->setRowHeight(22);
     }
@@ -322,32 +425,39 @@ class MovementsInSheetExport implements
     {
         return [
             AfterSheet::class => function (AfterSheet $e) {
-                $s = $e->sheet->getDelegate();
+                $s       = $e->sheet->getDelegate();
                 $lastCol = 'I';
 
                 // Judul
                 $s->setCellValue('A1', 'LAPORAN PERGERAKAN STOK — PEMASUKAN (IN)');
                 $s->mergeCells("A1:{$lastCol}1");
                 $s->getStyle('A1')->applyFromArray([
-                    'font'=>['bold'=>true,'size'=>14,'color'=>['rgb'=>'FFFFFF']],
-                    'alignment'=>['horizontal'=>Alignment::HORIZONTAL_CENTER,'vertical'=>Alignment::VERTICAL_CENTER],
-                    'fill'=>['fillType'=>Fill::FILL_SOLID,'startColor'=>['rgb'=>'1E88E5']], // biru
+                    'font'      => ['bold' => true, 'size' => 14, 'color' => ['rgb' => 'FFFFFF']],
+                    'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+                    'fill'      => [
+                        'fillType'   => Fill::FILL_SOLID,
+                        'startColor' => ['rgb' => '1E88E5'],
+                    ],
                 ]);
                 $s->getRowDimension(1)->setRowHeight(28);
 
                 // Periode (tanggal saja)
-                $period = 'Periode '.Carbon::parse($this->dateFrom)->format('d-m-Y').' s/d '.Carbon::parse($this->dateTo)->format('d-m-Y');
+                $period = 'Periode '
+                    . Carbon::parse($this->dateFrom)->format('d-m-Y')
+                    . ' s/d '
+                    . Carbon::parse($this->dateTo)->format('d-m-Y');
+
                 $s->setCellValue('A2', $period);
                 $s->mergeCells("A2:{$lastCol}2");
                 $s->getStyle('A2')->applyFromArray([
-                    'font'=>['bold'=>true,'size'=>11],
-                    'alignment'=>['horizontal'=>Alignment::HORIZONTAL_CENTER,'vertical'=>Alignment::VERTICAL_CENTER],
+                    'font'      => ['bold' => true, 'size' => 11],
+                    'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
                 ]);
 
                 // Info filter
                 $info = 'Jenis: IN'
-                      . ($this->supplierId ? " | Supplier ID: {$this->supplierId}" : '')
-                      . ($this->q ? " | Cari: {$this->q}" : '');
+                    . ($this->supplierId ? " | Supplier ID: {$this->supplierId}" : '')
+                    . ($this->q ? " | Cari: {$this->q}" : '');
                 $s->setCellValue('A3', $info);
                 $s->mergeCells("A3:{$lastCol}3");
 
@@ -355,24 +465,39 @@ class MovementsInSheetExport implements
                 $maxRow = $s->getHighestRow();
                 if ($maxRow >= 5) {
                     $s->getStyle("A4:{$lastCol}{$maxRow}")->applyFromArray([
-                        'borders'=>['allBorders'=>['borderStyle'=>Border::BORDER_HAIR,'color'=>['rgb'=>'CCCCCC']]],
-                        'alignment'=>['vertical'=>Alignment::VERTICAL_CENTER],
+                        'borders'   => [
+                            'allBorders' => [
+                                'borderStyle' => Border::BORDER_HAIR,
+                                'color'       => ['rgb' => 'CCCCCC'],
+                            ],
+                        ],
+                        'alignment' => ['vertical' => Alignment::VERTICAL_CENTER],
                     ]);
                 }
 
                 // Format tanggal TANPA jam + qty TANPA desimal
-                $s->getStyle("A5:A{$maxRow}")->getNumberFormat()->setFormatCode('dd-mm-yyyy');
-                $s->getStyle("H5:H{$maxRow}")->getNumberFormat()->setFormatCode(NumberFormat::FORMAT_NUMBER); // tanpa desimal
-                $s->getStyle("H5:H{$maxRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+                if ($maxRow >= 5) {
+                    $s->getStyle("A5:A{$maxRow}")
+                        ->getNumberFormat()
+                        ->setFormatCode('dd-mm-yyyy');
+
+                    $s->getStyle("H5:H{$maxRow}")
+                        ->getNumberFormat()
+                        ->setFormatCode(NumberFormat::FORMAT_NUMBER);
+                    $s->getStyle("H5:H{$maxRow}")
+                        ->getAlignment()
+                        ->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+                }
 
                 // Autofilter + freeze
                 $s->setAutoFilter("A4:{$lastCol}4");
                 $s->freezePane('A5');
 
                 // Ratakan center kolom kecil
-                foreach (['B','D','E','G'] as $col) {
+                foreach (['B', 'D', 'E', 'G'] as $col) {
                     $s->getStyle("{$col}5:{$col}{$maxRow}")
-                      ->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+                        ->getAlignment()
+                        ->setHorizontal(Alignment::HORIZONTAL_CENTER);
                 }
             },
         ];

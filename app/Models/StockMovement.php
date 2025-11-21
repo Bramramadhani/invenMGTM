@@ -25,7 +25,7 @@ class StockMovement extends Model
         'direction',
         'quantity',
         'notes',
-        'order_id',       // optional (kalau kolom belum ada, tidak akan dikirim saat insert)
+        'order_id',       // optional
         'order_item_id',  // optional
         'moved_at',
     ];
@@ -70,21 +70,27 @@ class StockMovement extends Model
      */
     public function getResolvedOrderAttribute()
     {
+        // Kalau relasi 'order' sudah diload dan ada
         if ($this->relationLoaded('order') && $this->order) {
             return $this->order;
         }
+
+        // Kalau lewat orderItem
         if ($this->relationLoaded('orderItem') && $this->orderItem) {
             return $this->orderItem->relationLoaded('order')
                 ? $this->orderItem->order
                 : $this->orderItem()->with('order')->first()?->order;
         }
 
+        // Fallback by id
         if (!empty($this->order_id)) {
             return $this->order()->first();
         }
+
         if (!empty($this->order_item_id)) {
             return $this->orderItem()->with('order')->first()?->order;
         }
+
         return null;
     }
 
@@ -100,6 +106,7 @@ class StockMovement extends Model
     public function getSignedQuantityAttribute(): float
     {
         $q = (float) $this->quantity;
+
         return $this->direction === self::DIR_OUT ? -$q : $q;
     }
 
@@ -117,20 +124,30 @@ class StockMovement extends Model
         if (in_array($dir, [self::DIR_IN, self::DIR_OUT, self::DIR_ADJ], true)) {
             $q->where('direction', $dir);
         }
+
         return $q;
     }
 
     public function scopeBetween($q, ?string $startDate, ?string $endDate)
     {
-        if ($startDate) $q->whereDate('moved_at', '>=', $startDate);
-        if ($endDate)   $q->whereDate('moved_at', '<=', $endDate);
+        if ($startDate) {
+            $q->whereDate('moved_at', '>=', $startDate);
+        }
+
+        if ($endDate) {
+            $q->whereDate('moved_at', '<=', $endDate);
+        }
+
         return $q;
     }
 
     public function scopeSearch($q, ?string $term)
     {
         $term = trim((string) $term);
-        if ($term === '') return $q;
+
+        if ($term === '') {
+            return $q;
+        }
 
         $like = "%{$term}%";
 
@@ -138,21 +155,35 @@ class StockMovement extends Model
             $w->where('material_name', 'like', $like)
               ->orWhere('unit', 'like', $like)
               ->orWhere('po_number', 'like', $like)
-              ->orWhereHas('supplier', fn($s) => $s->where('name', 'like', $like))
-              ->orWhereHas('stock', fn($st) => $st->where('material_code', 'like', $like));
+              ->orWhereHas('supplier', function ($s) use ($like) {
+                  $s->where('name', 'like', $like);
+              })
+              ->orWhereHas('stock', function ($st) use ($like) {
+                  $st->where('material_code', 'like', $like);
+              });
         });
     }
 
     /**
-     * Eager-load standar untuk halaman laporan — termasuk order (agar 3 nama bisa ditarik).
+     * Eager-load standar untuk halaman laporan
+     * - supplier
+     * - stock
+     * - order + purchaseOrderStyle
+     * - orderItem.order + purchaseOrderStyle (fallback)
      */
     public function scopeWithReportRelations($q)
     {
         return $q->with([
             'supplier:id,name',
             'stock:id,material_code,material_name,unit,last_po_number',
-            'order:id,production_name,warehouse_admin_name,warehouse_leader_name,supply_chain_head_name',
-            'orderItem.order:id,production_name,warehouse_admin_name,warehouse_leader_name,supply_chain_head_name',
+
+            // Order langsung dari movement
+            'order:id,production_name,production_leader_name,warehouse_admin_name,warehouse_leader_name,supply_chain_head_name,purchase_order_style_id',
+            'order.purchaseOrderStyle',
+
+            // Order lewat OrderItem (legacy)
+            'orderItem.order:id,production_name,production_leader_name,warehouse_admin_name,warehouse_leader_name,supply_chain_head_name,purchase_order_style_id',
+            'orderItem.order.purchaseOrderStyle',
         ]);
     }
 
@@ -186,12 +217,7 @@ class StockMovement extends Model
     }
 
     /**
-     * Catat movement OUT.
-     *
-     * - $movedAt sengaja TANPA typehint agar kompatibel dengan pemanggilan lama
-     *   (yang dulu salah kirim string seperti 'production_issues' di posisi ini).
-     * - Akan otomatis “menggeser” argumen legacy dan fallback kalau kolom order_id/order_item_id
-     *   belum ada di database (tanpa melempar error Unknown column).
+     * Catat movement OUT dengan kompatibilitas pemanggilan lama.
      */
     public static function recordOut(
         ?int $stockId,
@@ -201,13 +227,12 @@ class StockMovement extends Model
         float $qty,
         ?string $poNumber = null,
         ?string $notes = null,
-        $movedAt = null,          // ← fleksibel: bisa DateTimeInterface|null|string (legacy)
+        $movedAt = null,          // fleksibel
         ?int $orderId = null,
         ?int $orderItemId = null
     ): self {
-        // ====== KOMPATIBILITAS PEMANGGILAN LAMA ======
+        // ====== KOMPAT LEGACY ======
         // Pola lama: recordOut(..., $poNumber, $notes, 'production_issues', $issueId, now())
-        // Sehingga $movedAt berisi string, $orderId berisi int issueId, $orderItemId berisi DateTimeInterface
         if (!($movedAt instanceof \DateTimeInterface) && $movedAt !== null) {
             if ($orderItemId instanceof \DateTimeInterface) {
                 // Geser argumen ke posisi benar
@@ -219,6 +244,7 @@ class StockMovement extends Model
                 $movedAt = now();
             }
         }
+
         if ($movedAt === null) {
             $movedAt = now();
         }
@@ -240,12 +266,12 @@ class StockMovement extends Model
         if (Schema::hasColumn('stock_movements', 'order_id')) {
             $data['order_id'] = $orderId;
         }
+
         if (Schema::hasColumn('stock_movements', 'order_item_id')) {
             $data['order_item_id'] = $orderItemId;
         }
 
-        // Coba insert; jika DB ternyata belum punya kolom (beda DB / migrasi belum jalan),
-        // lakukan retry tanpa kolom referensi order agar proses tidak terblokir.
+        // Coba insert; kalau gagal karena kolom order_id/order_item_id belum ada, ulang tanpa keduanya
         try {
             return self::create($data);
         } catch (\Illuminate\Database\QueryException $e) {
@@ -256,6 +282,7 @@ class StockMovement extends Model
 
             if ($unknownOrderCol) {
                 unset($data['order_id'], $data['order_item_id']);
+
                 return self::create($data);
             }
 

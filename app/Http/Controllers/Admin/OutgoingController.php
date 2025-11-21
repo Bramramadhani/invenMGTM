@@ -16,6 +16,8 @@ class OutgoingController extends Controller
             ->with([
                 'supplier:id,name',
                 'stock:id,material_code',
+                // NEW: ikutkan order & style supaya tidak N+1
+                'order.purchaseOrderStyle',
             ])
             ->where('direction', StockMovement::DIR_OUT)
             ->search($q)

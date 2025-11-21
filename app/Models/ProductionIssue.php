@@ -18,12 +18,8 @@ class ProductionIssue extends Model
         'posted_at',
         'posted_by',
         'order_id',
-
-        // sudah kamu tambahkan sebelumnya
         'requested_at',
         'requested_by',
-
-        // NEW: relasi ke style PO
         'purchase_order_style_id',
     ];
 
@@ -64,9 +60,15 @@ class ProductionIssue extends Model
         return $this->belongsTo(Order::class);
     }
 
-    // NEW: relasi ke Style PO
-    public function style()
+    // relasi utama ke Style PO
+    public function purchaseOrderStyle()
     {
         return $this->belongsTo(PurchaseOrderStyle::class, 'purchase_order_style_id');
+    }
+
+    // alias: supaya bisa dipanggil $issue->style
+    public function style()
+    {
+        return $this->purchaseOrderStyle();
     }
 }
