@@ -93,27 +93,40 @@ class PurchaseReceiptPostingController extends Controller
                 $materialName = $it->material_name;
                 $unit         = $it->unit;
 
-                // Baris stok per-PO: 1 baris = 1 PO + 1 material + 1 supplier
-                $stock = Stock::firstOrCreate(
-                    [
-                        'purchase_order_id' => $poId,
-                        'supplier_id'       => $supplierId,
-                        'material_code'     => $materialCode,
-                    ],
-                    [
-                        'material_name'     => $materialName,
-                        'unit'              => $unit,
-                        'quantity'          => 0,
-                        'last_po_id'        => $poId,
-                        'last_po_number'    => $poNumber,
-                    ]
-                );
+                /**
+                 * Baris stok per-PO:
+                 *   1 baris = 1 supplier + 1 PO + 1 nama material + 1 unit
+                 *
+                 * Di DB VPS kamu sudah ada unique index
+                 *   stocks_unique_sup_mat_unit_po_v2
+                 * yang kemungkinan besar isinya:
+                 *   (supplier_id, material_name, unit, purchase_order_id)
+                 *
+                 * Jadi di sini kita cari stok EXISTING berdasarkan kombinasi itu,
+                 * lalu kalau tidak ada baru buat baris baru.
+                 */
 
-                // Update nama/unit kalau ada perubahan
-                $stock->material_name  = $materialName;
-                $stock->unit           = $unit;
-                $stock->last_po_id     = $poId;
-                $stock->last_po_number = $poNumber;
+                $stock = Stock::where('purchase_order_id', $poId)
+                    ->where('supplier_id', $supplierId)
+                    ->where('material_name', $materialName)
+                    ->where('unit', $unit)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$stock) {
+                    // Belum ada baris stok untuk kombinasi ini → buat baru
+                    $stock = new Stock();
+                    $stock->purchase_order_id = $poId;
+                    $stock->supplier_id       = $supplierId;
+                    $stock->material_name     = $materialName;
+                    $stock->unit              = $unit;
+                    $stock->quantity          = 0;
+                }
+
+                // Selalu update kode & info PO terakhir
+                $stock->material_code   = $materialCode;
+                $stock->last_po_id      = $poId;
+                $stock->last_po_number  = $poNumber;
 
                 // Tambah qty ke stok batch ini
                 $stock->quantity = (float) $stock->quantity + (float) $it->received_quantity;
