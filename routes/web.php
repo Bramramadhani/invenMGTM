@@ -132,6 +132,12 @@ Route::middleware(['auth'])
             [OrderController::class, 'poStocks']
         )->name('orders.po-stocks');
 
+        // NEW: AJAX daftar style per PO
+        Route::get(
+            '/orders/po/{purchaseOrder}/styles',
+            [OrderController::class, 'poStyles']
+        )->name('orders.po-styles');
+
         Route::resource('/orders', OrderController::class)
             ->only(['index', 'show', 'create', 'store', 'update', 'destroy'])
             ->names('orders');
@@ -172,3 +178,4 @@ Route::middleware(['auth'])
 
 // Redirect /home bawaan auth ke dashboard admin
 Route::get('/home', fn () => redirect()->route('admin.dashboard'))->middleware('auth');
+

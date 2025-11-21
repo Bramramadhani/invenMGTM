@@ -15,8 +15,8 @@ class PurchaseOrder extends Model
     protected $fillable = [
         'supplier_id',
         'po_number',
-        'arrival_date',            
-        'target_completion_date',  
+        'arrival_date',
+        'target_completion_date',
         'is_completed',
         'notes',
     ];
@@ -49,7 +49,6 @@ class PurchaseOrder extends Model
 
     /**
      * Relasi ke item-item PO.
-     * Ditambahkan orderBy agar item tampil terurut.
      */
     public function items()
     {
@@ -63,6 +62,14 @@ class PurchaseOrder extends Model
     public function receipts()
     {
         return $this->hasMany(PurchaseReceipt::class);
+    }
+
+    /**
+     * Relasi ke Styles (Style Tas per PO).
+     */
+    public function styles()
+    {
+        return $this->hasMany(PurchaseOrderStyle::class);
     }
 
     /* ========================== SCOPE ========================= */
@@ -101,4 +108,3 @@ class PurchaseOrder extends Model
         return $query->where('po_number', 'like', "%{$term}%");
     }
 }
-

@@ -14,6 +14,13 @@
 
   $reqDate = optional($order->created_at)->format('d-m-Y') ?? '-';
   $reqTime = optional($order->created_at)->format('H:i') ?? '-';
+
+  // Style yang dipilih di header
+  $style     = optional($order->purchaseOrderStyle ?? null);
+  $styleName = $style->name
+    ?? $style->style_name
+    ?? $style->nama_style
+    ?? '';
 @endphp
 <!DOCTYPE html>
 <html>
@@ -53,19 +60,18 @@
     .header-right { display: table-cell; vertical-align: middle; text-align: right; }
     .header-right .row { margin-bottom: 2px; }
 
-    /* META – 7 kolom: kiri (label:sep:value) + spacer + kanan (label:sep:value) */
+    /* META */
     .meta { width:100%; border-collapse: collapse; }
     .meta td { padding: 3px 4px; vertical-align: top; white-space: nowrap; }
     .meta .label { width: 160px; font-weight: bold; }
     .meta .sep   { width: 12px; text-align: center; }
     .meta .value { width: 180px; }
-    .meta .flex  { width: 100%; } /* spacer fleksibel */
+    .meta .flex  { width: 100%; }
 
-    /* Sisi kanan meta */
     .meta .label-r { width: 240px; text-align: right; padding-right: 6px; }
     .meta .value-r { width: 260px; }
 
-    /* SIGNATURES (pakai tabel agar aman di DomPDF) */
+    /* SIGNATURES */
     .sign-grid { width:100%; border-collapse: collapse; table-layout: fixed; page-break-inside: avoid; }
     .sign-grid th, .sign-grid td { border: 0; padding: 0 8px; }
 
@@ -111,7 +117,7 @@
     </div>
   </div>
 
-  {{-- Meta: Jam Permintaan SEJAJAR dengan Tanggal Permintaan --}}
+  {{-- Meta: hanya tanggal/jam + dibuat oleh + style --}}
   <table class="meta mb-3">
     <tr>
       <td class="label">Tanggal Permintaan</td>
@@ -127,7 +133,13 @@
     <tr>
       <td class="label">Dibuat Oleh</td>
       <td class="sep">:</td>
-      <td class="value" colspan="5">{{ optional($order->user)->name ?? '—' }}</td>
+      <td class="value">{{ optional($order->user)->name ?? '—' }}</td>
+
+      <td class="flex"></td>
+
+      <td class="label label-r">Style</td>
+      <td class="sep">:</td>
+      <td class="value value-r">{{ $styleName ?: '—' }}</td>
     </tr>
     @if(!empty($order->notes))
       <tr>
@@ -156,7 +168,7 @@
         @php
           $stock    = $row->stock;
           $supplier = optional($stock?->supplier)->name;
-          $po       = optional($stock?->purchaseOrder)->po_number; // STRICT: dari relasi PO
+          $po       = optional($stock?->purchaseOrder)->po_number;
         @endphp
         <tr>
           <td>{{ $i+1 }}</td>
@@ -182,15 +194,17 @@
     </tbody>
   </table>
 
-  {{-- Tanda Tangan 1: Produksi & Checker Gudang (dua kolom) --}}
+  {{-- Tanda Tangan 1: Produksi, Leader Produksi, Checker Gudang --}}
   <table class="sign-grid mb-3">
     <colgroup>
-      <col style="width:50%">
-      <col style="width:50%">
+      <col style="width:33%">
+      <col style="width:34%">
+      <col style="width:33%">
     </colgroup>
     <thead>
       <tr>
-        <th class="sign-title">Produksi</th>
+        <th class="sign-title">Checker Produksi</th>
+        <th class="sign-title">Leader Produksi</th>
         <th class="sign-title">Checker Gudang</th>
       </tr>
     </thead>
@@ -198,15 +212,17 @@
       <tr>
         <td><div class="sign-box"></div></td>
         <td><div class="sign-box"></div></td>
+        <td><div class="sign-box"></div></td>
       </tr>
       <tr>
         <td><div class="sig-name">{{ $order->production_name ?: ' ' }}</div></td>
+        <td><div class="sig-name">{{ $order->production_leader_name ?: ' ' }}</div></td>
         <td><div class="sig-name">{{ $order->warehouse_admin_name ?: ' ' }}</div></td>
       </tr>
     </tbody>
   </table>
 
-  {{-- Tanda Tangan 2: Leader Gudang (kiri) & Supply Chain Head (kanan) --}}
+  {{-- Tanda Tangan 2: Leader Gudang & Supply Chain Head --}}
   <table class="sign-grid">
     <colgroup>
       <col style="width:50%">

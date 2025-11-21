@@ -14,10 +14,12 @@ class Order extends Model
         'status',
         'name',
         'notes',
-        'production_name',        
-        'warehouse_admin_name',   
-        'warehouse_leader_name',  
-        'supply_chain_head_name', 
+        'production_name',
+        'production_leader_name',   
+        'warehouse_admin_name',
+        'warehouse_leader_name',
+        'supply_chain_head_name',
+        'purchase_order_style_id',
     ];
 
     public function user()
@@ -28,6 +30,15 @@ class Order extends Model
     public function items()
     {
         return $this->hasMany(\App\Models\OrderItem::class, 'order_id');
+    }
+
+    /**
+     * Style PO yang menjadi dasar permintaan ini.
+     * (tabel: purchase_order_styles)
+     */
+    public function purchaseOrderStyle()
+    {
+        return $this->belongsTo(PurchaseOrderStyle::class, 'purchase_order_style_id');
     }
 
     // (opsional) accessor image kalau masih dipakai

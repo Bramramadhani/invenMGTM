@@ -4,6 +4,14 @@
 <div class="container">
   <h4 class="mb-4">Edit Purchase Order — {{ $purchaseOrder->po_number }}</h4>
 
+  @if ($errors->any())
+    <div class="alert alert-danger">
+      <ul class="mb-0">
+        @foreach ($errors->all() as $error) <li>{{ $error }}</li> @endforeach
+      </ul>
+    </div>
+  @endif
+
   @php
     // Helper lokal: format qty tanpa nol belakang
     if (!function_exists('qty_fmt')) {
@@ -13,7 +21,8 @@
             return $s === '' ? '0' : $s;
         }
     }
-    // Siapkan rows awal (old() jika gagal validasi, fallback dari relasi items)
+
+    // Siapkan rows awal item (old() jika gagal validasi, fallback dari relasi items)
     $oldItems = old('items');
     $rows = is_array($oldItems)
       ? $oldItems
@@ -25,12 +34,30 @@
             'ordered_quantity'  => qty_fmt($it->ordered_quantity),
           ];
         })->toArray();
+
+    // Siapkan rows awal styles (old() jika gagal validasi, fallback dari relasi styles)
+    $oldStyles = old('styles');
+    $styleRows = is_array($oldStyles)
+      ? $oldStyles
+      : $purchaseOrder->styles->map(function($st){
+          return [
+            'style_name'      => $st->style_name,
+            'style_quantity'  => $st->style_quantity,
+          ];
+        })->toArray();
+
+    if (empty($styleRows)) {
+        $styleRows = [
+          ['style_name' => '', 'style_quantity' => null],
+        ];
+    }
   @endphp
 
   <form action="{{ route('admin.purchase-orders.update', $purchaseOrder) }}" method="POST" id="poForm">
     @csrf
     @method('PUT')
 
+    {{-- HEADER PO --}}
     <div class="row g-3">
       <div class="col-md-4">
         <label class="form-label">Supplier</label>
@@ -63,8 +90,16 @@
       </div>
     </div>
 
+    <div class="row mt-3">
+      <div class="col-12">
+        <label class="form-label">Catatan PO</label>
+        <textarea class="form-control" name="notes" rows="2" placeholder="Catatan untuk PO">{{ old('notes', $purchaseOrder->notes) }}</textarea>
+      </div>
+    </div>
+
     <hr class="my-4">
 
+    {{-- ITEM PO (MATERIAL) --}}
     <div class="d-flex align-items-center justify-content-between mb-2">
       <h5 class="mb-0">Item PO</h5>
       <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddRow">
@@ -150,6 +185,61 @@
       </table>
     </div>
 
+    {{-- STYLES PO --}}
+    <hr class="my-4">
+
+    <div class="d-flex align-items-center justify-content-between mb-2">
+      <h5 class="mb-0">Styles (Pembagian Style Tas)</h5>
+      <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddStyleRow">
+        <i class="fas fa-plus"></i> Tambah Style
+      </button>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-bordered align-middle" id="stylesTable">
+        <thead class="table-light">
+          <tr>
+            <th style="width: 36px">#</th>
+            <th>Nama Style</th>
+            <th style="width: 180px" class="text-end">Qty Style</th>
+            <th style="width: 60px">Aksi</th>
+          </tr>
+        </thead>
+        <tbody>
+          @foreach($styleRows as $i => $style)
+            <tr>
+              <td class="text-center align-middle">{{ $i + 1 }}</td>
+              <td>
+                <input class="form-control"
+                       name="styles[{{ $i }}][style_name]"
+                       value="{{ old("styles.$i.style_name", $style['style_name'] ?? '') }}"
+                       placeholder="Contoh: STYLE A">
+                @error("styles.$i.style_name")
+                  <div class="text-danger small mt-1">{{ $message }}</div>
+                @enderror
+              </td>
+              <td>
+                <input class="form-control text-end"
+                       type="number"
+                       min="1"
+                       name="styles[{{ $i }}][style_quantity]"
+                       value="{{ old("styles.$i.style_quantity", $style['style_quantity'] ?? '') }}"
+                       placeholder="Qty">
+                @error("styles.$i.style_quantity")
+                  <div class="text-danger small mt-1">{{ $message }}</div>
+                @enderror
+              </td>
+              <td class="text-center">
+                <button type="button" class="btn btn-sm btn-outline-danger btnRemoveStyleRow">
+                  <i class="fas fa-times"></i>
+                </button>
+              </td>
+            </tr>
+          @endforeach
+        </tbody>
+      </table>
+    </div>
+
     <div class="d-flex gap-2 mt-3">
       <button type="submit" class="btn btn-primary">
         <i class="fas fa-save"></i> Update PO
@@ -162,11 +252,10 @@
 </div>
 
 <script>
-  // Hitung index awal: kalau ada rows dari DB/old(), mulai dari count($rows), kalau kosong mulai 1 (karena index 0 sudah dipakai di fallback row)
+  // === Item PO (material) ===
   let nextIdx = {{ count($rows) ? count($rows) : 1 }};
-  const tbody = document.querySelector('#itemsTable tbody');
+  const itemsTbody = document.querySelector('#itemsTable tbody');
 
-  // Tambah baris baru
   document.getElementById('btnAddRow').addEventListener('click', function () {
     const i = nextIdx++;
     const tr = document.createElement('tr');
@@ -179,12 +268,12 @@
       <td>
         <input type="text" class="form-control item-material-code"
                name="items[${i}][material_code]"
-               placeholder="Kode Barang">
+               placeholder="Contoh: LB-001">
       </td>
       <td>
         <input type="text" class="form-control"
                name="items[${i}][unit]"
-               placeholder="pcs/Kg/Meter" required>
+               placeholder="pcs/kg/roll/..." required>
       </td>
       <td>
         <input type="number" step="0.0001" min="0.0001"
@@ -198,15 +287,14 @@
         </button>
       </td>
     `;
-    tbody.appendChild(tr);
+    itemsTbody.appendChild(tr);
   });
 
-  // Hapus baris (minimal selalu ada 1 baris: kalau tinggal 1, cukup kosongkan input)
   document.addEventListener('click', function (e) {
     const btn = e.target.closest('.btnRemoveRow');
     if (!btn) return;
 
-    const rows = tbody.querySelectorAll('tr');
+    const rows = itemsTbody.querySelectorAll('tr');
     if (rows.length <= 1) {
       rows[0].querySelectorAll('input').forEach(i => i.value = '');
       return;
@@ -215,7 +303,58 @@
     btn.closest('tr').remove();
   });
 
-  // Auto-uppercase Kode Barang (sama seperti di halaman create)
+  // === Styles PO ===
+  let nextStyleIdx = {{ count($styleRows) ? count($styleRows) : 1 }};
+  const stylesTbody = document.querySelector('#stylesTable tbody');
+
+  function renumberStyles() {
+    stylesTbody.querySelectorAll('tr').forEach((row, i) => {
+      row.cells[0].innerText = i + 1;
+    });
+  }
+
+  document.getElementById('btnAddStyleRow').addEventListener('click', function () {
+    const i = nextStyleIdx++;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="text-center align-middle"></td>
+      <td>
+        <input class="form-control"
+               name="styles[${i}][style_name]"
+               placeholder="Contoh: STYLE A">
+      </td>
+      <td>
+        <input class="form-control text-end"
+               type="number"
+               min="1"
+               name="styles[${i}][style_quantity]"
+               placeholder="Qty">
+      </td>
+      <td class="text-center">
+        <button type="button" class="btn btn-sm btn-outline-danger btnRemoveStyleRow">
+          <i class="fas fa-times"></i>
+        </button>
+      </td>
+    `;
+    stylesTbody.appendChild(tr);
+    renumberStyles();
+  });
+
+  document.addEventListener('click', function (e) {
+    const btn = e.target.closest('.btnRemoveStyleRow');
+    if (!btn) return;
+
+    const rows = stylesTbody.querySelectorAll('tr');
+    if (rows.length <= 1) {
+      rows[0].querySelectorAll('input').forEach(i => i.value = '');
+      return;
+    }
+
+    btn.closest('tr').remove();
+    renumberStyles();
+  });
+
+  // Auto-uppercase Kode Barang
   document.addEventListener('input', function(e){
     if (e.target && e.target.classList.contains('item-material-code')) {
       e.target.value = e.target.value.toUpperCase();

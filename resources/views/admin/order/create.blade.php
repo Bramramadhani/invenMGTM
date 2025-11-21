@@ -13,11 +13,14 @@
   <form method="post" action="{{ route('admin.orders.store') }}" id="orderForm" novalidate>
     @csrf
 
-    {{-- === INFORMASI SUPPLIER DAN PO === --}}
+    {{-- === INFORMASI SUPPLIER, PO, STYLE === --}}
     <div class="card mb-3">
+      <div class="card-header bg-light fw-semibold">
+        Sumber PO & Style
+      </div>
       <div class="card-body">
         <div class="row g-3">
-          <div class="col-md-6">
+          <div class="col-md-4">
             <label class="form-label">Supplier <span class="text-danger">*</span></label>
             <select id="supplierSelect" class="form-select" required>
               <option value="">— Pilih Supplier —</option>
@@ -27,11 +30,22 @@
             </select>
           </div>
 
-          <div class="col-md-6">
+          <div class="col-md-4">
             <label class="form-label">No. PO <span class="text-danger">*</span></label>
             <select id="poSelect" class="form-select" disabled required>
               <option value="">— Pilih PO —</option>
             </select>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Style <span class="text-danger">*</span></label>
+            {{-- ini yang akan dikirim ke server --}}
+            <select id="styleSelect" name="purchase_order_style_id" class="form-select" disabled required>
+              <option value="">— Pilih Style —</option>
+            </select>
+            <div class="form-text" id="styleHelp">
+              Pilih PO terlebih dahulu untuk melihat daftar style.
+            </div>
           </div>
         </div>
       </div>
@@ -45,26 +59,34 @@
       <div class="card-body">
         <div class="row g-3">
           <div class="col-md-3">
-            <label class="form-label">Peminta (Produksi) <span class="text-danger">*</span></label>
-            <input type="text" name="production_name" class="form-control" 
+            <label class="form-label">Checker Produksi <span class="text-danger">*</span></label>
+            <input type="text" name="production_name" class="form-control"
                    value="{{ old('production_name') }}" placeholder="Masukkan nama produksi" required>
           </div>
 
           <div class="col-md-3">
+            <label class="form-label">Leader Produksi <span class="text-danger">*</span></label>
+            <input type="text" name="production_leader_name" class="form-control"
+                   value="{{ old('production_leader_name') }}" placeholder="Masukkan nama leader produksi" required>
+          </div>
+
+          <div class="col-md-3">
             <label class="form-label">Checker Gudang <span class="text-danger">*</span></label>
-            <input type="text" name="warehouse_admin_name" class="form-control" 
+            <input type="text" name="warehouse_admin_name" class="form-control"
                    value="{{ old('warehouse_admin_name') }}" placeholder="Masukkan nama admin gudang" required>
           </div>
 
           <div class="col-md-3">
             <label class="form-label">Leader Gudang <span class="text-danger">*</span></label>
-            <input type="text" name="warehouse_leader_name" class="form-control" 
+            <input type="text" name="warehouse_leader_name" class="form-control"
                    value="{{ old('warehouse_leader_name') }}" placeholder="Masukkan nama leader gudang" required>
           </div>
+        </div>
 
+        <div class="row g-3 mt-2">
           <div class="col-md-3">
             <label class="form-label">Supply Chain Head</label>
-            <input type="text" name="supply_chain_head_name" class="form-control" 
+            <input type="text" name="supply_chain_head_name" class="form-control"
                    value="{{ old('supply_chain_head_name') }}" placeholder="Masukkan nama Supply Chain Head">
           </div>
         </div>
@@ -128,12 +150,15 @@
 {{-- URL template untuk AJAX --}}
 <input type="hidden" id="urlSupplierPOs" value="{{ route('admin.orders.supplier-pos', ['supplier' => '__ID__']) }}">
 <input type="hidden" id="urlPOStocks" value="{{ route('admin.orders.po-stocks', ['purchaseOrder' => '__ID__']) }}">
+<input type="hidden" id="urlPOStyles" value="{{ route('admin.orders.po-styles', ['purchaseOrder' => '__ID__']) }}">
 
 @push('js')
 <script>
 (function(){
   const supplierSelect = document.getElementById('supplierSelect');
   const poSelect       = document.getElementById('poSelect');
+  const styleSelect    = document.getElementById('styleSelect');
+  const styleHelp      = document.getElementById('styleHelp');
   const tblBody        = document.querySelector('#stocksTable tbody');
   const chkHeader      = document.getElementById('chkHeader');
   const btnSelectAll   = document.getElementById('btnSelectAll');
@@ -142,6 +167,7 @@
 
   const urlSupplierPOsTpl = document.getElementById('urlSupplierPOs').value;
   const urlPOStocksTpl    = document.getElementById('urlPOStocks').value;
+  const urlPOStylesTpl    = document.getElementById('urlPOStyles').value;
 
   const selCountEl = document.getElementById('selCount');
   const selTotalEl = document.getElementById('selTotal');
@@ -152,11 +178,22 @@
     updateSummary();
   }
 
+  function resetStyles() {
+    if (!styleSelect) return;
+    styleSelect.innerHTML = '<option value="">— Pilih Style —</option>';
+    styleSelect.disabled = true;
+    styleSelect.required = false;
+    if (styleHelp) {
+      styleHelp.textContent = 'Pilih PO terlebih dahulu untuk melihat daftar style.';
+    }
+  }
+
   supplierSelect.addEventListener('change', async function(){
     const supplierId = this.value;
     poSelect.innerHTML = '<option value="">— Pilih PO —</option>';
     poSelect.disabled = true;
     resetTable();
+    resetStyles();
 
     if (!supplierId) return;
 
@@ -177,68 +214,106 @@
   poSelect.addEventListener('change', async function(){
     const poId = this.value;
     resetTable();
+    resetStyles();
     if (!poId) return;
 
-    const url = urlPOStocksTpl.replace('__ID__', encodeURIComponent(poId));
-    const res = await fetch(url);
-    if (!res.ok) return alert('Gagal memuat stok PO');
-    const data = await res.json();
+    // Load stok
+    {
+      const url = urlPOStocksTpl.replace('__ID__', encodeURIComponent(poId));
+      const res = await fetch(url);
+      if (!res.ok) return alert('Gagal memuat stok PO');
+      const data = await res.json();
 
-    (data.items || []).forEach((row, idx) => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td class="text-center">
-          <input type="checkbox" class="chkRow">
-          <input type="hidden" class="hidStockId">
-        </td>
-        <td>${row.material_code ? row.material_code : '—'}</td>
-        <td class="fw-semibold">${row.material_name}</td>
-        <td>${row.unit ?? ''}</td>
-        <td>${row.supplier ?? '—'}</td>
-        <td class="text-center">${row.po_number ?? '—'}</td>
-        <td class="text-end availCell">${formatNumber(row.available)}</td>
-        <td>
-          <input type="number" min="0" step="0.0001" class="form-control text-end qtyInput" placeholder="0" disabled data-avail="${row.available}">
-        </td>
-        <td>
-          <input type="text" class="form-control notesInput" placeholder="Catatan item (opsional)" disabled>
-        </td>
-      `;
+      (data.items || []).forEach((row, idx) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="text-center">
+            <input type="checkbox" class="chkRow">
+            <input type="hidden" class="hidStockId">
+          </td>
+          <td>${row.material_code ? row.material_code : '—'}</td>
+          <td class="fw-semibold">${row.material_name}</td>
+          <td>${row.unit ?? ''}</td>
+          <td>${row.supplier ?? '—'}</td>
+          <td class="text-center">${row.po_number ?? '—'}</td>
+          <td class="text-end availCell">${formatNumber(row.available)}</td>
+          <td>
+            <input type="number" min="0" step="0.0001" class="form-control text-end qtyInput" placeholder="0" disabled data-avail="${row.available}">
+          </td>
+          <td>
+            <input type="text" class="form-control notesInput" placeholder="Catatan item (opsional)" disabled>
+          </td>
+        `;
 
-      const chk   = tr.querySelector('.chkRow');
-      const hidId = tr.querySelector('.hidStockId');
-      const qty   = tr.querySelector('.qtyInput');
-      const note  = tr.querySelector('.notesInput');
+        const chk   = tr.querySelector('.chkRow');
+        const hidId = tr.querySelector('.hidStockId');
+        const qty   = tr.querySelector('.qtyInput');
+        const note  = tr.querySelector('.notesInput');
 
-      chk.addEventListener('change', () => {
-        const sel = chk.checked;
-        qty.disabled  = !sel;
-        note.disabled = !sel;
-        qty.required  = sel;
+        chk.addEventListener('change', () => {
+          const sel = chk.checked;
+          qty.disabled  = !sel;
+          note.disabled = !sel;
+          qty.required  = sel;
 
-        if (sel) {
-          hidId.name = `items[${idx}][stock_id]`;
-          qty.name   = `items[${idx}][quantity]`;
-          note.name  = `items[${idx}][notes]`;
-          hidId.value = row.stock_id;
-          if (!qty.value || Number(qty.value) <= 0) qty.value = cleanDecimal(row.available);
-        } else {
-          hidId.name = '';
-          qty.name   = '';
-          note.name  = '';
-          qty.value  = '';
-          note.value = '';
+          if (sel) {
+            hidId.name = `items[${idx}][stock_id]`;
+            qty.name   = `items[${idx}][quantity]`;
+            note.name  = `items[${idx}][notes]`;
+            hidId.value = row.stock_id;
+            if (!qty.value || Number(qty.value) <= 0) qty.value = cleanDecimal(row.available);
+          } else {
+            hidId.name = '';
+            qty.name   = '';
+            note.name  = '';
+            qty.value  = '';
+            note.value = '';
+          }
+          updateSummary();
+        });
+
+        qty.addEventListener('input', () => {
+          clampQty(qty);
+          updateSummary();
+        });
+
+        tblBody.appendChild(tr);
+      });
+    }
+
+    // Load styles untuk PO
+    {
+      const url = urlPOStylesTpl.replace('__ID__', encodeURIComponent(poId));
+      const res = await fetch(url);
+      if (!res.ok) {
+        alert('Gagal memuat daftar style untuk PO ini');
+        return;
+      }
+      const data   = await res.json();
+      const styles = data.styles || [];
+
+      if (!styles.length) {
+        if (styleHelp) {
+          styleHelp.textContent = 'PO ini belum memiliki data style. Tambahkan style di menu Purchase Order sebelum membuat permintaan.';
         }
-        updateSummary();
+        styleSelect.disabled = true;
+        styleSelect.required = false;
+        return;
+      }
+
+      styles.forEach(st => {
+        const opt = document.createElement('option');
+        opt.value = st.id;
+        opt.textContent = st.name || ('Style #' + st.id); // HANYA nama style
+        styleSelect.appendChild(opt);
       });
 
-      qty.addEventListener('input', () => {
-        clampQty(qty);
-        updateSummary();
-      });
-
-      tblBody.appendChild(tr);
-    });
+      styleSelect.disabled = false;
+      styleSelect.required = true;
+      if (styleHelp) {
+        styleHelp.textContent = 'Pilih style tas yang sedang jalan produksi.';
+      }
+    }
   });
 
   chkHeader.addEventListener('change', () => {
@@ -259,6 +334,13 @@
   });
 
   form.addEventListener('submit', (e) => {
+    if (styleSelect && styleSelect.required && !styleSelect.value) {
+      e.preventDefault();
+      alert('Silakan pilih Style PO terlebih dahulu.');
+      styleSelect.focus();
+      return;
+    }
+
     const picked = tblBody.querySelectorAll('.hidStockId[name^="items["]').length;
     if (!picked) {
       e.preventDefault();

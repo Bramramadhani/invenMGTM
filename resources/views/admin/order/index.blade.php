@@ -40,12 +40,13 @@
     <div class="card-body p-0">
       <div class="table-responsive">
         <table class="table table-bordered table-hover align-middle mb-0">
-            <thead class="table-light text-center align-middle">
+          <thead class="table-light text-center align-middle">
             <tr>
               <th style="width:150px">Nomor Dokumen</th>
               <th style="width:160px">Nama Produksi</th>
-              <th style="width:150px">Checker Gudang</th>
-              <th style="width:150px">Leader Gudang</th>
+              <th style="width:160px">Leader Produksi</th>
+              <th style="width:140px">Checker Gudang</th>
+              <th style="width:140px">Leader Gudang</th>
               <th style="width:150px">Supply&nbsp;Chain<br>Head</th>
               <th style="width:120px">Tanggal</th>
               <th style="width:90px">Jam</th>
@@ -67,6 +68,7 @@
               <tr>
                 <td class="fw-semibold text-center">{{ $o->name ?? '—' }}</td>
                 <td class="text-center">{{ $o->production_name ?? '—' }}</td>
+                <td class="text-center">{{ $o->production_leader_name ?? '—' }}</td>
                 <td class="text-center">{{ $o->warehouse_admin_name ?? '—' }}</td>
                 <td class="text-center">{{ $o->warehouse_leader_name ?? '—' }}</td>
                 <td class="text-center">{{ $o->supply_chain_head_name ?? '—' }}</td>
@@ -88,7 +90,7 @@
               </tr>
             @empty
               <tr>
-                <td colspan="9" class="text-center text-muted">Tidak ada data permintaan barang.</td>
+                <td colspan="10" class="text-center text-muted">Tidak ada data permintaan barang.</td>
               </tr>
             @endforelse
           </tbody>
