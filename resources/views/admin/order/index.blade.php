@@ -51,7 +51,7 @@
               <th style="width:120px">Tanggal</th>
               <th style="width:90px">Jam</th>
               <th style="width:120px">Status</th>
-              <th style="width:200px">Aksi</th>
+              <th style="width:220px">Aksi</th>
             </tr>
           </thead>
           <tbody>
@@ -81,6 +81,9 @@
                   <div class="btn-group">
                     <a href="{{ route('admin.orders.show', $o) }}" class="btn btn-sm btn-outline-primary">
                       <i class="fas fa-eye"></i> Detail
+                    </a>
+                    <a href="{{ route('admin.orders.edit', $o) }}" class="btn btn-sm btn-outline-warning">
+                      <i class="fas fa-edit"></i> Edit
                     </a>
                     <a href="{{ route('admin.orders.receipt-pdf', $o) }}" class="btn btn-sm btn-outline-secondary">
                       <i class="fas fa-file-pdf"></i> PDF

@@ -139,7 +139,7 @@ Route::middleware(['auth'])
         )->name('orders.po-styles');
 
         Route::resource('/orders', OrderController::class)
-            ->only(['index', 'show', 'create', 'store', 'update', 'destroy'])
+            ->only(['index', 'show', 'create', 'store', 'edit', 'update', 'destroy']) 
             ->names('orders');
 
         // Receipt PDF untuk Permintaan Barang
@@ -178,4 +178,3 @@ Route::middleware(['auth'])
 
 // Redirect /home bawaan auth ke dashboard admin
 Route::get('/home', fn () => redirect()->route('admin.dashboard'))->middleware('auth');
-

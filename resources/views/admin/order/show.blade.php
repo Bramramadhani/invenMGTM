@@ -21,19 +21,10 @@
 
   <style>
     .table-centered th,
-    .table-centered td {
-      text-align: center;
-      vertical-align: middle;
-    }
-
+    .table-centered td { text-align: center; vertical-align: middle; }
     .summary-chip {
-      font-size: .85rem;
-      padding: .35rem .65rem;
-      border-radius: 999px;
-      background: #f8f9fa;
-      display: inline-flex;
-      align-items: center;
-      gap: .35rem;
+      font-size: .85rem; padding: .35rem .65rem; border-radius: 999px;
+      background: #f8f9fa; display: inline-flex; align-items: center; gap: .35rem;
     }
   </style>
 
@@ -50,6 +41,18 @@
       <a href="{{ route('admin.orders.receipt-pdf', $order) }}" class="btn btn-outline-secondary">
         <i class="fas fa-file-pdf"></i> Download Receipt PDF
       </a>
+
+      {{-- Tombol Hapus + rollback stok --}}
+      <form action="{{ route('admin.orders.destroy', $order) }}"
+            method="post"
+            onsubmit="return confirm('Yakin ingin menghapus permintaan ini?\nStok akan dikembalikan seperti sebelum permintaan dibuat.');">
+        @csrf
+        @method('DELETE')
+        <button type="submit" class="btn btn-outline-danger">
+          <i class="fas fa-trash"></i> Hapus
+        </button>
+      </form>
+
       <a href="{{ route('admin.orders.index') }}" class="btn btn-outline-secondary">
         <i class="fas fa-arrow-left"></i> Kembali
       </a>
@@ -143,9 +146,7 @@
   <div class="card shadow-sm">
     <div class="card-header d-flex justify-content-between align-items-center">
       <strong>Item Permintaan</strong>
-      <span class="small text-muted">
-        Menampilkan {{ $itemCount }} baris
-      </span>
+      <span class="small text-muted">Menampilkan {{ $itemCount }} baris</span>
     </div>
     <div class="card-body p-0">
       <div class="table-responsive">
@@ -175,9 +176,7 @@
                 <td>{{ $it->material_code ?: '—' }}</td>
                 <td class="fw-semibold text-start">{{ $it->material_name }}</td>
                 <td>{{ $it->unit }}</td>
-                <td class="text-start">
-                  {{ optional($stock?->supplier)->name ?? '—' }}
-                </td>
+                <td class="text-start">{{ optional($stock?->supplier)->name ?? '—' }}</td>
                 <td>
                   @if ($poId)
                     <a href="{{ route('admin.purchase-orders.show', $poId) }}">

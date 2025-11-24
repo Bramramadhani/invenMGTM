@@ -326,15 +326,385 @@ class OrderController extends Controller
         return view('admin.order.show', compact('order'));
     }
 
-    public function update(Request $request, Order $order)
+    /**
+     * Form Edit Permintaan
+     * Style & PO dikunci (readonly)
+     */
+    public function edit(Order $order)
     {
-        return back()->with('info', 'Permintaan sudah auto-posted saat disimpan.');
+        $order->load([
+            'items.stock.supplier',
+            'purchaseOrderStyle.purchaseOrder.supplier',
+            'user',
+        ]);
+
+        $style = $order->purchaseOrderStyle;
+        $po    = optional($style)->purchaseOrder;
+
+        if (!$style || !$po) {
+            return back()->with('warning', 'Order ini belum terkait Style/PO yang valid.');
+        }
+
+        return view('admin.order.edit', [
+            'order' => $order,
+            'style' => $style,
+            'po'    => $po,
+        ]);
     }
 
+    /**
+     * Update permintaan:
+     * - Update header (nama-nama)
+     * - Diff item lama vs baru
+     * - Sesuaikan stok, ProductionIssueItem, dan StockMovement OUT
+     */
+    public function update(Request $request, Order $order)
+    {
+        // Normalisasi qty koma→titik
+        $payload = $request->all();
+        if (isset($payload['items']) && is_array($payload['items'])) {
+            foreach ($payload['items'] as $i => $row) {
+                if (isset($row['quantity']) && is_string($row['quantity'])) {
+                    $v = trim(str_replace(' ', '', $row['quantity']));
+                    $v = str_replace(',', '.', $v);
+                    $parts = explode('.', $v);
+                    if (count($parts) > 2) {
+                        $v = $parts[0] . '.' . implode('', array_slice($parts, 1));
+                    }
+                    $payload['items'][$i]['quantity'] = $v;
+                }
+            }
+            $request->merge($payload);
+        }
+
+        $data = $request->validate([
+            'production_name'         => ['required', 'string', 'max:255'],
+            'production_leader_name'  => ['required', 'string', 'max:255'],
+            'warehouse_admin_name'    => ['required', 'string', 'max:255'],
+            'warehouse_leader_name'   => ['required', 'string', 'max:255'],
+            'supply_chain_head_name'  => ['nullable', 'string', 'max:191'],
+
+            'items'            => ['required', 'array', 'min:1'],
+            'items.*.stock_id' => ['required', 'integer', 'exists:stocks,id'],
+            'items.*.quantity' => ['required', 'numeric', 'min:0.0001'],
+            'items.*.notes'    => ['nullable', 'string', 'max:255'],
+        ], [], [
+            'items' => 'Item permintaan',
+        ]);
+
+        DB::transaction(function () use ($order, $data) {
+            $now = now();
+
+            // Reload order dengan relasi yang dibutuhkan
+            $order->load([
+                'items',
+                'purchaseOrderStyle.purchaseOrder',
+            ]);
+
+            $style = $order->purchaseOrderStyle;
+            $po    = optional($style)->purchaseOrder;
+
+            if (!$style || !$po) {
+                throw ValidationException::withMessages(['order' => 'Order belum terkait PO/Style.']);
+            }
+
+            // UPDATE header
+            $order->update([
+                'production_name'         => $data['production_name'],
+                'production_leader_name'  => $data['production_leader_name'],
+                'warehouse_admin_name'    => $data['warehouse_admin_name'],
+                'warehouse_leader_name'   => $data['warehouse_leader_name'],
+                'supply_chain_head_name'  => $data['supply_chain_head_name'] ?? null,
+                'updated_at'              => $now,
+            ]);
+
+            // Ambil ProductionIssue 1:1 dengan order
+            /** @var \App\Models\ProductionIssue|null $issue */
+            $issue = ProductionIssue::where('order_id', $order->id)->lockForUpdate()->first();
+
+            if (!$issue) {
+                // Safety: buat issue bila tidak ada (harusnya ada)
+                $issueCounter = ProductionIssue::lockForUpdate()->count() + 1;
+                $issueNumber  = 'IS-' . $now->format('Ymd') . '-' . str_pad($issueCounter, 4, '0', STR_PAD_LEFT);
+
+                $issue = ProductionIssue::create([
+                    'issue_date'             => $now->toDateString(),
+                    'issue_number'           => $issueNumber,
+                    'notes'                  => null,
+                    'status'                 => 'posted',
+                    'posted_at'              => $now,
+                    'posted_by'              => Auth::id(),
+                    'order_id'               => $order->id,
+                    'requested_at'           => $now,
+                    'requested_by'           => Auth::id(),
+                    'purchase_order_style_id'=> $style->id,
+                    'created_at'             => $now,
+                    'updated_at'             => $now,
+                ]);
+            }
+
+            // ====== BEFORE: map item lama (by stock_id) ======
+            $before = [];
+            foreach ($order->items as $it) {
+                $before[(int) $it->stock_id] = [
+                    'id'    => $it->id,
+                    'qty'   => (float) $it->quantity,
+                    'notes' => (string) ($it->notes ?? ''),
+                ];
+            }
+
+            // ====== AFTER: map item baru (by stock_id) ======
+            $after = [];
+            foreach ($data['items'] as $i => $row) {
+                $sid  = (int) $row['stock_id'];
+                $qty  = (float) $row['quantity'];
+                $note = trim((string) ($row['notes'] ?? ''));
+
+                if ($qty <= 0) {
+                    throw ValidationException::withMessages([
+                        "items.$i.quantity" => "Qty harus > 0",
+                    ]);
+                }
+
+                $after[$sid] = [
+                    'qty'   => $qty,
+                    'notes' => $note,
+                ];
+            }
+
+            // Lock semua stok yang terdampak
+            $allStockIds = array_values(array_unique(array_merge(array_keys($before), array_keys($after))));
+            $stocks = Stock::whereIn('id', $allStockIds)->lockForUpdate()->get()->keyBy('id');
+
+            // Validasi semua stok harus satu PO dengan style
+            foreach ($allStockIds as $sid) {
+                /** @var \App\Models\Stock|null $st */
+                $st = $stocks[$sid] ?? null;
+                if (!$st) {
+                    continue;
+                }
+                if (!empty($st->purchase_order_id) && $st->purchase_order_id !== $po->id) {
+                    throw ValidationException::withMessages([
+                        'items' => ["Item {$st->material_name} bukan dari PO {$po->po_number}."],
+                    ]);
+                }
+            }
+
+            // ====== 1) ADD / UPDATE item ======
+            foreach ($after as $sid => $newRow) {
+                /** @var \App\Models\Stock $st */
+                $st = $stocks[$sid] ?? null;
+                if (!$st) {
+                    throw ValidationException::withMessages(['items' => 'Stok tidak ditemukan.']);
+                }
+
+                $newQty  = (float) $newRow['qty'];
+                $newNote = $newRow['notes'];
+
+                if (isset($before[$sid])) {
+                    // UPDATE item (ada sebelumnya)
+                    $old    = $before[$sid];
+                    $itemId = (int) $old['id'];
+                    $oldQty = (float) $old['qty'];
+                    $delta  = $newQty - $oldQty;
+
+                    if ($delta > 0) {
+                        // butuh stok tambahan
+                        if ($st->quantity < $delta) {
+                            throw ValidationException::withMessages([
+                                'items' => ["Qty {$st->material_name} melebihi sisa stok (tersedia: {$st->quantity})."],
+                            ]);
+                        }
+                        $st->decrement('quantity', $delta);
+                    } elseif ($delta < 0) {
+                        // kembalikan sisa ke stok
+                        $st->increment('quantity', abs($delta));
+                    }
+
+                    // Update OrderItem
+                    OrderItem::whereKey($itemId)->update([
+                        'quantity'   => $newQty,
+                        'notes'      => $newNote ?: null,
+                        'updated_at' => $now,
+                    ]);
+
+                    // Update ProductionIssueItem
+                    ProductionIssueItem::where('order_item_id', $itemId)
+                        ->where('production_issue_id', $issue->id)
+                        ->update([
+                            'quantity'   => $newQty,
+                            'notes'      => $newNote ?: null,
+                            'updated_at' => $now,
+                        ]);
+
+                    // Update StockMovement OUT
+                    $mov = StockMovement::where('order_item_id', $itemId)
+                        ->where('direction', StockMovement::DIR_OUT)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if ($mov) {
+                        $mov->update([
+                            'quantity'   => $newQty,
+                            'notes'      => $newNote ?: null,
+                            'updated_at' => $now,
+                        ]);
+                    } else {
+                        // safety: kalau movement belum ada, buat baru
+                        $poNumber = optional($st->purchaseOrder)->po_number;
+                        StockMovement::recordOut(
+                            stockId:       $st->id,
+                            supplierId:    (int) $st->supplier_id,
+                            material:      $st->material_name,
+                            unit:          $st->unit,
+                            qty:           (float) $newQty,
+                            poNumber:      $poNumber ?: null,
+                            notes:         $newNote ?: null,
+                            movedAt:       $now,
+                            orderId:       $order->id,
+                            orderItemId:   $itemId,
+                        );
+                    }
+                } else {
+                    // ADD item baru
+                    if ($st->quantity < $newQty) {
+                        throw ValidationException::withMessages([
+                            'items' => ["Qty {$st->material_name} melebihi sisa stok (tersedia: {$st->quantity})."],
+                        ]);
+                    }
+
+                    // a) OrderItem baru
+                    $orderItem = OrderItem::create([
+                        'order_id'       => $order->id,
+                        'stock_id'       => $st->id,
+                        'supplier_id'    => $st->supplier_id,
+                        'material_code'  => $st->material_code,
+                        'material_name'  => $st->material_name,
+                        'unit'           => $st->unit,
+                        'quantity'       => $newQty,
+                        'notes'          => $newNote ?: null,
+                        'created_at'     => $now,
+                        'updated_at'     => $now,
+                    ]);
+
+                    // b) Issue Item baru
+                    ProductionIssueItem::create([
+                        'production_issue_id' => $issue->id,
+                        'order_item_id'       => $orderItem->id,
+                        'stock_id'            => $st->id,
+                        'supplier_id'         => $st->supplier_id,
+                        'material_code'       => $st->material_code,
+                        'material_name'       => $st->material_name,
+                        'unit'                => $st->unit,
+                        'quantity'            => $newQty,
+                        'notes'               => $newNote ?: null,
+                        'created_at'          => $now,
+                        'updated_at'          => $now,
+                    ]);
+
+                    // c) kurangi stok
+                    $st->decrement('quantity', $newQty);
+
+                    // d) Movement OUT baru
+                    $poNumber = optional($st->purchaseOrder)->po_number;
+                    StockMovement::recordOut(
+                        stockId:       $st->id,
+                        supplierId:    (int) $st->supplier_id,
+                        material:      $st->material_name,
+                        unit:          $st->unit,
+                        qty:           (float) $newQty,
+                        poNumber:      $poNumber ?: null,
+                        notes:         $newNote ?: null,
+                        movedAt:       $now,
+                        orderId:       $order->id,
+                        orderItemId:   $orderItem->id,
+                    );
+                }
+            }
+
+            // ====== 2) REMOVE item yang dihapus ======
+            foreach ($before as $sid => $old) {
+                if (isset($after[$sid])) {
+                    continue; // masih ada
+                }
+
+                /** @var \App\Models\Stock|null $st */
+                $st = $stocks[$sid] ?? null;
+                if (!$st) {
+                    continue;
+                }
+
+                $itemId = (int) $old['id'];
+                $oldQty = (float) $old['qty'];
+
+                // kembalikan stok
+                $st->increment('quantity', $oldQty);
+
+                // hapus movement OUT
+                StockMovement::where('order_item_id', $itemId)
+                    ->where('direction', StockMovement::DIR_OUT)
+                    ->delete();
+
+                // hapus issue item
+                ProductionIssueItem::where('order_item_id', $itemId)
+                    ->where('production_issue_id', $issue->id)
+                    ->delete();
+
+                // hapus order item
+                OrderItem::whereKey($itemId)->delete();
+            }
+        });
+
+        return redirect()
+            ->route('admin.orders.show', $order)
+            ->with('success', 'Permintaan berhasil diperbarui & stok disesuaikan.');
+    }
+
+    /**
+     * Hapus permintaan + rollback:
+     * - Kembalikan stok
+     * - Hapus StockMovement OUT terkait
+     * - Hapus ProductionIssue & itemnya
+     * - Hapus OrderItem & Order
+     */
     public function destroy(Order $order)
     {
-        $order->delete();
-        return back()->with('success', 'Permintaan dihapus.');
+        try {
+            DB::transaction(function () use ($order) {
+                $order->load(['items.stock']);
+
+                // 1) Kembalikan stok
+                foreach ($order->items as $item) {
+                    if ($item->stock) {
+                        $item->stock->increment('quantity', (float) $item->quantity);
+                    }
+                }
+
+                // 2) Hapus movement OUT yang terkait order / itemnya
+                $orderItemIds = $order->items->pluck('id')->all();
+                StockMovement::where('order_id', $order->id)
+                    ->orWhereIn('order_item_id', $orderItemIds)
+                    ->delete();
+
+                // 3) Hapus Production Issue + items
+                $issues = ProductionIssue::where('order_id', $order->id)->get();
+                foreach ($issues as $issue) {
+                    $issue->items()->delete();
+                    $issue->delete();
+                }
+
+                // 4) Hapus item & header order
+                $order->items()->delete();
+                $order->delete();
+            });
+
+            return redirect()
+                ->route('admin.orders.index')
+                ->with('success', 'Permintaan dibatalkan & stok dikembalikan seperti semula.');
+        } catch (\Throwable $e) {
+            report($e);
+            return back()->with('warning', 'Gagal membatalkan permintaan. Silakan coba lagi.');
+        }
     }
 
     public function receiptPdf(Order $order)
