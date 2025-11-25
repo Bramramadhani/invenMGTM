@@ -72,6 +72,19 @@ class PurchaseOrder extends Model
         return $this->hasMany(PurchaseOrderStyle::class);
     }
 
+    /* ====================== HELPER / LOCK ====================== */
+
+    /**
+     * Cek apakah PO ini sudah punya minimal satu Receipt berstatus POSTED.
+     * Dipakai untuk mengunci edit/hapus PO agar tidak merusak data stok.
+     */
+    public function hasPostedReceipt(): bool
+    {
+        return $this->receipts()
+            ->where('status', PurchaseReceipt::STATUS_POSTED)
+            ->exists();
+    }
+
     /* ========================== SCOPE ========================= */
 
     /**

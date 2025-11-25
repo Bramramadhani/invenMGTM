@@ -22,12 +22,15 @@
         }
     }
 
+    $hasPostedReceipts = $purchaseOrder->hasPostedReceipt();
+
     // Siapkan rows awal item (old() jika gagal validasi, fallback dari relasi items)
     $oldItems = old('items');
     $rows = is_array($oldItems)
       ? $oldItems
       : $purchaseOrder->items->map(function($it){
           return [
+            'id'                => $it->id,
             'material_name'     => $it->material_name,
             'material_code'     => $it->material_code,
             'unit'              => $it->unit,
@@ -52,6 +55,18 @@
         ];
     }
   @endphp
+
+  @if($hasPostedReceipts)
+    <div class="alert alert-warning">
+      PO ini <strong>sudah memiliki penerimaan berstatus POSTED</strong>.<br>
+      Anda masih bisa <strong>menambah item baru</strong> atau
+      <strong>mengubah Qty PO</strong>, tetapi:
+      <ul class="mb-0">
+        <li>Item yang sudah pernah diterima <strong>tidak boleh dihapus</strong>.</li>
+        <li>Qty PO <strong>tidak boleh lebih kecil</strong> dari total yang sudah diterima.</li>
+      </ul>
+    </div>
+  @endif
 
   <form action="{{ route('admin.purchase-orders.update', $purchaseOrder) }}" method="POST" id="poForm">
     @csrf
@@ -121,6 +136,11 @@
         <tbody>
           @forelse($rows as $idx => $row)
             <tr>
+              {{-- hidden ID untuk item lama (jika ada) --}}
+              <input type="hidden"
+                     name="items[{{ $idx }}][id]"
+                     value="{{ old("items.$idx.id", $row['id'] ?? '') }}">
+
               <td>
                 <input type="text" class="form-control"
                        name="items[{{ $idx }}][material_name]"
@@ -260,6 +280,7 @@
     const i = nextIdx++;
     const tr = document.createElement('tr');
     tr.innerHTML = `
+      <input type="hidden" name="items[${i}][id]" value="">
       <td>
         <input type="text" class="form-control"
                name="items[${i}][material_name]"
@@ -296,7 +317,13 @@
 
     const rows = itemsTbody.querySelectorAll('tr');
     if (rows.length <= 1) {
-      rows[0].querySelectorAll('input').forEach(i => i.value = '');
+      rows[0].querySelectorAll('input').forEach(i => {
+        if (i.type === 'hidden') {
+          i.value = '';
+        } else {
+          i.value = '';
+        }
+      });
       return;
     }
 
@@ -305,7 +332,7 @@
 
   // === Styles PO ===
   let nextStyleIdx = {{ count($styleRows) ? count($styleRows) : 1 }};
-  const stylesTbody = document.querySelector('#stylesTable tbody');
+  const stylesTbody = document.querySelector('#stylesTable tbody';
 
   function renumberStyles() {
     stylesTbody.querySelectorAll('tr').forEach((row, i) => {

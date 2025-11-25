@@ -11,7 +11,7 @@ class PurchaseOrderItem extends Model
 
     protected $fillable = [
         'purchase_order_id',
-        'material_code',             
+        'material_code',
         'material_name',
         'ordered_quantity',
         'actual_arrived_quantity',
@@ -38,7 +38,6 @@ class PurchaseOrderItem extends Model
             // kode barang: uppercase & trim
             if (!is_null($m->material_code)) {
                 $code = trim((string) $m->material_code);
-                // biarkan karakter non-alfanumerik jika memang dipakai (dash/underscore)
                 $m->material_code = strtoupper($code);
             }
         });
@@ -54,12 +53,39 @@ class PurchaseOrderItem extends Model
     // batch penerimaan (parsial)
     public function receiptItems()
     {
-        return $this->hasMany(\App\Models\PurchaseReceiptItem::class, 'purchase_order_item_id');
+        return $this->hasMany(PurchaseReceiptItem::class, 'purchase_order_item_id');
+    }
+
+    /**
+     * Receipt items yang status receiptnya sudah POSTED.
+     */
+    public function postedReceiptItems()
+    {
+        return $this->receiptItems()
+            ->whereHas('receipt', function ($q) {
+                $q->where('status', PurchaseReceipt::STATUS_POSTED);
+            });
+    }
+
+    /**
+     * Apakah item ini sudah pernah diterima dan receipt-nya POSTED?
+     */
+    public function hasPostedReceipt(): bool
+    {
+        return $this->postedReceiptItems()->exists();
+    }
+
+    /**
+     * Apakah item ini punya penerimaan (DRAFT atau POSTED)?
+     */
+    public function hasAnyReceipt(): bool
+    {
+        return $this->receiptItems()->exists();
     }
 
     /* ==================== ACCESSOR ==================== */
 
-    // total yang sudah diterima (dari tabel receipt items)
+    // total yang sudah diterima (semua status)
     public function getTotalReceivedAttribute()
     {
         return (float) $this->receiptItems()->sum('received_quantity');
