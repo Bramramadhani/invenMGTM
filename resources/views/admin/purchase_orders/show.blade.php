@@ -292,10 +292,20 @@
           <tbody>
             @foreach($purchaseOrder->items as $item)
               @php
-                $ordered  = (float)$item->ordered_quantity;
-                $received = (float)$item->receiptItems()
-                            ->whereHas('receipt', fn($q)=>$q->where('status','posted'))
-                            ->sum('received_quantity');
+                $ordered = (float) $item->ordered_quantity;
+
+                // Total diterima dari RECEIPT yang sudah POSTED (kasus normal)
+                $receivedFromReceipts = (float) $item->receiptItems()
+                    ->whereHas('receipt', fn ($q) => $q->where('status', 'posted'))
+                    ->sum('received_quantity');
+
+                // Fallback: jika dari receipt = 0 tetapi summary actual_arrived_quantity > 0,
+                // gunakan nilai summary tersebut (untuk PO lama yang datanya rusak).
+                $received = $receivedFromReceipts;
+                if ($receivedFromReceipts <= 0 && (float) $item->actual_arrived_quantity > 0) {
+                    $received = (float) $item->actual_arrived_quantity;
+                }
+
                 $rejected = \App\Models\PurchaseOrderReject::where('purchase_order_item_id', $item->id)->sum('reject_quantity');
                 $remaining = max(0, $ordered - $received);
                 $lastReject = \App\Models\PurchaseOrderReject::where('purchase_order_item_id', $item->id)
@@ -413,9 +423,14 @@
               <tbody>
                 @foreach($purchaseOrder->items as $i => $it)
                   @php
-                    $received = (float)$it->receiptItems()
-                      ->whereHas('receipt', fn($q)=>$q->where('status','posted'))
-                      ->sum('received_quantity');
+                    $receivedFromReceipts = (float) $it->receiptItems()
+                        ->whereHas('receipt', fn ($q) => $q->where('status', 'posted'))
+                        ->sum('received_quantity');
+
+                    $received = $receivedFromReceipts;
+                    if ($receivedFromReceipts <= 0 && (float) $it->actual_arrived_quantity > 0) {
+                        $received = (float) $it->actual_arrived_quantity;
+                    }
                   @endphp
                   <tr>
                     <td>{{ $i+1 }}</td>
@@ -465,4 +480,3 @@ document.addEventListener('click', function(e){
 });
 </script>
 @endpush
-
