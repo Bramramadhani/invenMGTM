@@ -48,7 +48,7 @@ class DashboardController extends Controller
             ->whereMonth('purchase_receipts.receipt_date', date('m'))
             ->sum('purchase_receipt_items.received_quantity');
 
-        // Opsional
+        // Opsional: material yang stok totalnya <= 10 (dari actual_arrived_quantity)
         $productsOutStock = PurchaseOrderItem::select('material_name', DB::raw('SUM(actual_arrived_quantity) as total'))
             ->groupBy('material_name')
             ->having('total', '<=', 10)
@@ -86,6 +86,7 @@ class DashboardController extends Controller
         $allPOs = $poBaseQuery->get(['id','po_number','supplier_id','created_at']);
         $poIds  = $allPOs->pluck('id')->toArray();
 
+        // Total ordered per PO
         $ordered = !empty($poIds)
             ? PurchaseOrderItem::whereIn('purchase_order_id', $poIds)
                 ->select('purchase_order_id', DB::raw('SUM(ordered_quantity) as total_ordered'))
@@ -94,7 +95,8 @@ class DashboardController extends Controller
                 ->toArray()
             : [];
 
-        $receivedByPoId = !empty($poIds)
+        // Total diterima per PO berdasarkan RECEIPT yang POSTED (kasus normal)
+        $receivedFromReceipts = !empty($poIds)
             ? PurchaseReceiptItem::query()
                 ->join('purchase_receipts as pr', 'pr.id', '=', 'purchase_receipt_items.purchase_receipt_id')
                 ->join('purchase_order_items as poi', 'poi.id', '=', 'purchase_receipt_items.purchase_order_item_id')
@@ -106,10 +108,23 @@ class DashboardController extends Controller
                 ->toArray()
             : [];
 
-        $poProgress = $allPOs->map(function ($po) use ($ordered, $receivedByPoId) {
-            $orderedQty  = (float) ($ordered[$po->id] ?? 0);
-            $receivedQty = (float) ($receivedByPoId[$po->id] ?? 0);
-            $pct         = $orderedQty > 0 ? round(($receivedQty / $orderedQty) * 100, 2) : 0;
+        // Total diterima per PO berdasarkan summary actual_arrived_quantity (fallback / patch)
+        $receivedFromActual = !empty($poIds)
+            ? PurchaseOrderItem::whereIn('purchase_order_id', $poIds)
+                ->select('purchase_order_id', DB::raw('SUM(actual_arrived_quantity) as total_received'))
+                ->groupBy('purchase_order_id')
+                ->pluck('total_received', 'purchase_order_id')
+                ->toArray()
+            : [];
+
+        // Gabungkan: pakai nilai yang lebih besar antara receipt & actual_arrived
+        $poProgress = $allPOs->map(function ($po) use ($ordered, $receivedFromReceipts, $receivedFromActual) {
+            $orderedQty   = (float) ($ordered[$po->id] ?? 0);
+            $fromReceipt  = (float) ($receivedFromReceipts[$po->id] ?? 0);
+            $fromActual   = (float) ($receivedFromActual[$po->id] ?? 0);
+            $receivedQty  = max($fromReceipt, $fromActual);
+
+            $pct = $orderedQty > 0 ? round(($receivedQty / $orderedQty) * 100, 2) : 0;
 
             $status = 'Pending';
             if ($receivedQty > 0 && $receivedQty < $orderedQty) $status = 'Partial';
@@ -221,7 +236,7 @@ class DashboardController extends Controller
         }
 
         // ==========================
-        // NEW: outChart — Chart Material Keluar (Top 5/10/All) by material_name + unit
+        // CHART Material Keluar (Top 5/10/All) by material_name + unit
         $outAggQ = StockMovement::query()
             ->where('direction', 'OUT')
             ->select('material_name','unit', DB::raw('SUM(quantity) as total'))
@@ -262,7 +277,7 @@ class DashboardController extends Controller
             'filterListPo',
             'charts',
             'poChart',
-            'outChart'   // NEW: kirim ke blade
+            'outChart'
         ));
     }
 }
