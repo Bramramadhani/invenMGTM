@@ -204,19 +204,38 @@
                 <th>No. Receipt</th>
                 <th>Tanggal</th>
                 <th>Ringkasan Item</th>
-                <th class="text-end">Detail</th>
+                <th class="text-end">Aksi</th>
               </tr>
             </thead>
             <tbody>
               @foreach($rows as $rc)
                 <tr>
-                  <td>{{ $rc->receipt_number }}</td>
+                  <td>
+                    {{ $rc->receipt_number }}
+                    @if($rc->edited_at)
+                      <span class="badge bg-warning text-dark ms-1">Dikoreksi</span>
+                    @endif
+
+                    @if($rc->notes)
+                      <div class="small text-muted mt-1">
+                        {{ Str::limit($rc->notes, 80) }}
+                      </div>
+                    @endif
+                  </td>
                   <td>{{ optional($rc->receipt_date)->format('d-m-Y') }}</td>
-                  <td>{{ $rc->items->count() }} item, total: <strong>{{ qty_fmt($rc->items->sum('received_quantity')) }}</strong></td>
+                  <td>
+                    {{ $rc->items->count() }} item, total:
+                    <strong>{{ qty_fmt($rc->items->sum('received_quantity')) }}</strong>
+                  </td>
                   <td class="text-end">
-                    <button class="btn btn-sm btn-outline-primary js-open-receipt-modal" data-target="receiptModal-{{ $rc->id }}">
+                    <button class="btn btn-sm btn-outline-primary js-open-receipt-modal"
+                            data-target="receiptModal-{{ $rc->id }}">
                       <i class="fas fa-list"></i> Detail
                     </button>
+                    <a href="{{ route('admin.receipts.correction.edit', $rc) }}"
+                       class="btn btn-sm btn-warning ms-1">
+                      <i class="fas fa-edit"></i> Koreksi
+                    </a>
                   </td>
                 </tr>
               @endforeach
@@ -294,13 +313,12 @@
               @php
                 $ordered = (float) $item->ordered_quantity;
 
-                // Total diterima dari RECEIPT yang sudah POSTED (kasus normal)
+                // Total diterima dari RECEIPT POSTED
                 $receivedFromReceipts = (float) $item->receiptItems()
                     ->whereHas('receipt', fn ($q) => $q->where('status', 'posted'))
                     ->sum('received_quantity');
 
-                // Fallback: jika dari receipt = 0 tetapi summary actual_arrived_quantity > 0,
-                // gunakan nilai summary tersebut (untuk PO lama yang datanya rusak).
+                // Fallback untuk data lama yang sudah terlanjur pakai summary
                 $received = $receivedFromReceipts;
                 if ($receivedFromReceipts <= 0 && (float) $item->actual_arrived_quantity > 0) {
                     $received = (float) $item->actual_arrived_quantity;
@@ -351,6 +369,7 @@
   </a>
 </div>
 
+{{-- MODAL REJECT PER ITEM --}}
 @foreach($purchaseOrder->items as $item)
   @php
     $rejects = \App\Models\PurchaseOrderReject::where('purchase_order_item_id', $item->id)
@@ -397,6 +416,7 @@
   </div>
 @endforeach
 
+{{-- MODAL REJECT GLOBAL --}}
 <div class="modal fade" id="rejectModalGlobal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl">
     <form method="POST" action="{{ route('admin.purchase-orders.reject', $purchaseOrder->id) }}">

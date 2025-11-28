@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\PurchaseReceipt;
 use App\Models\PurchaseOrderItem;
 use App\Models\Stock;
+use App\Models\StockHistory;
 use App\Models\StockMovement;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -123,14 +124,23 @@ class PurchaseReceiptPostingController extends Controller
                     $stock->quantity          = 0;
                 }
 
-                // Selalu update kode & info PO terakhir
                 $stock->material_code   = $materialCode;
                 $stock->last_po_id      = $poId;
                 $stock->last_po_number  = $poNumber;
 
-                // Tambah qty ke stok batch ini
-                $stock->quantity = (float) $stock->quantity + (float) $it->received_quantity;
+                $oldQty        = (float) $stock->quantity;
+                $stock->quantity = $oldQty + (float) $it->received_quantity;
                 $stock->save();
+
+                // History: receipt_post (perubahan stok karena posting penerimaan)
+                StockHistory::recordChange(
+                    $stock,
+                    $oldQty,
+                    (float) $stock->quantity,
+                    'receipt_post',
+                    'Posting receipt ' . ($receipt->receipt_number ?? $receipt->id),
+                    Auth::id()
+                );
 
                 // Movement IN pada tanggal penerimaan (bukan now)
                 StockMovement::create([

@@ -60,7 +60,10 @@ Route::middleware(['auth'])
 
         // MASTER DATA
         Route::resource('/supplier', SupplierController::class)->except(['show']);
-        Route::resource('/stock',    StockController::class)->only(['index', 'update']);
+
+        // STOK: hanya index (tanpa edit / hapus / riwayat)
+        Route::get('/stock', [StockController::class, 'index'])->name('stock.index');
+
         Route::resource('/transaction', TransactionController::class);
         Route::resource('/permission',  PermissionController::class)->except(['show']);
         Route::resource('/role',        RoleController::class)->names('role')->except(['show']);
@@ -81,7 +84,6 @@ Route::middleware(['auth'])
         Route::resource('/purchase-orders', PurchaseOrderController::class);
 
         // === Barang Reject ===
-        // Single reject (per item)
         Route::post(
             '/purchase-orders/{purchaseOrder}/reject',
             [PurchaseOrderRejectController::class, 'store']
@@ -119,6 +121,17 @@ Route::middleware(['auth'])
             [PurchaseReceiptController::class, 'pdfMerged']
         )->name('receipts.pdf-merged');
 
+        // === Koreksi Receipt (POSTED) ===
+        Route::get(
+            'receipts/{receipt}/correction',
+            [PurchaseReceiptController::class, 'editCorrection']
+        )->name('receipts.correction.edit');
+
+        Route::put(
+            'receipts/{receipt}/correction',
+            [PurchaseReceiptController::class, 'updateCorrection']
+        )->name('receipts.correction.update');
+
         // ==============================
         // ORDERS
         // ==============================
@@ -139,7 +152,7 @@ Route::middleware(['auth'])
         )->name('orders.po-styles');
 
         Route::resource('/orders', OrderController::class)
-            ->only(['index', 'show', 'create', 'store', 'edit', 'update', 'destroy']) 
+            ->only(['index', 'show', 'create', 'store', 'edit', 'update', 'destroy'])
             ->names('orders');
 
         // Receipt PDF untuk Permintaan Barang

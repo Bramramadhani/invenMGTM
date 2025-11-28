@@ -49,11 +49,13 @@ class Stock extends Model
         return $this->belongsTo(\App\Models\PurchaseOrder::class);
     }
 
-    // HAPUS relasi legacy:
-    // public function lastPo()
-    // {
-    //     return $this->belongsTo(\App\Models\PurchaseOrder::class, 'last_po_id');
-    // }
+    /**
+     * Riwayat perubahan stok (manual_edit, manual_delete, dsb).
+     */
+    public function histories()
+    {
+        return $this->hasMany(\App\Models\StockHistory::class);
+    }
 
     /**
      * Pencarian cepat: nama, KODE material, unit, NO PO, nama supplier.

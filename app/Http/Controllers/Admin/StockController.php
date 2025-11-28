@@ -38,12 +38,4 @@ class StockController extends Controller
             'group'  => $group,
         ]);
     }
-
-    /**
-     * Nonaktif: stok dijaga dari proses IN/OUT, bukan edit manual.
-     */
-    public function update()
-    {
-        abort(404);
-    }
 }

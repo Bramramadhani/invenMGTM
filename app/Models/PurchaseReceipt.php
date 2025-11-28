@@ -27,9 +27,10 @@ class PurchaseReceipt extends Model
         'posted_by',
         'voided_at',
         'voided_by',
+        'edited_at',
     ];
 
-    // CHANGED: tambahkan cast integer biar konsisten
+    // CHANGED: tambahkan cast integer & edited_at biar konsisten
     protected $casts = [
         'purchase_order_id' => 'integer',
         'posted_by'         => 'integer',
@@ -37,6 +38,7 @@ class PurchaseReceipt extends Model
         'receipt_date'      => 'date',
         'posted_at'         => 'datetime',
         'voided_at'         => 'datetime',
+        'edited_at'         => 'datetime',
     ];
 
     // CHANGED: default status saat create (aman, tidak override update)
