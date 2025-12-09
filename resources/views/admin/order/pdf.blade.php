@@ -21,6 +21,10 @@
     ?? $style->style_name
     ?? $style->nama_style
     ?? '';
+
+  $sourceType  = $order->source_type ?? 'po';
+  $sourceLabel = $sourceType === 'fob' ? 'Stok FOB (Buyer)' : 'Stok PO / Supplier';
+  $buyerName   = optional($order->buyer)->name;
 @endphp
 <!DOCTYPE html>
 <html>
@@ -117,7 +121,7 @@
     </div>
   </div>
 
-  {{-- Meta: hanya tanggal/jam + dibuat oleh + style --}}
+  {{-- Meta --}}
   <table class="meta mb-3">
     <tr>
       <td class="label">Tanggal Permintaan</td>
@@ -141,6 +145,17 @@
       <td class="sep">:</td>
       <td class="value value-r">{{ $styleName ?: '—' }}</td>
     </tr>
+    <tr>
+      <td class="label">Sumber Stok</td>
+      <td class="sep">:</td>
+      <td class="value">{{ $sourceLabel }}</td>
+
+      <td class="flex"></td>
+
+      <td class="label label-r">Buyer (FOB)</td>
+      <td class="sep">:</td>
+      <td class="value value-r">{{ $buyerName ?: '—' }}</td>
+    </tr>
     @if(!empty($order->notes))
       <tr>
         <td class="label">Catatan</td>
@@ -159,16 +174,18 @@
         <th style="width:160px">Material</th>
         <th style="width:60px">Unit</th>
         <th style="width:80px">Qty</th>
-        <th style="width:160px">Supplier / PO</th>
+        <th style="width:180px">Supplier / Buyer / PO</th>
         <th style="width:160px">Catatan</th>
       </tr>
     </thead>
     <tbody>
       @forelse($order->items as $i => $row)
         @php
-          $stock    = $row->stock;
-          $supplier = optional($stock?->supplier)->name;
-          $po       = optional($stock?->purchaseOrder)->po_number;
+          $stock        = $row->stock;
+          $supplierName = optional($stock?->supplier)->name;
+          $buyerNameRow = optional($stock?->buyer)->name;
+          $sourceLabel  = $supplierName ?: $buyerNameRow;
+          $po           = optional($stock?->purchaseOrder)->po_number;
         @endphp
         <tr>
           <td>{{ $i+1 }}</td>
@@ -177,9 +194,9 @@
           <td>{{ $row->unit ?? '—' }}</td>
           <td>{{ qty_fmt($row->quantity) }}</td>
           <td>
-            @if($supplier || $po)
-              @if($supplier) <div>{{ $supplier }}</div> @endif
-              @if($po) <div class="small">PO: {{ $po }}</div> @endif
+            @if($sourceLabel || $po)
+              @if($sourceLabel) <div>{{ $sourceLabel }}</div> @endif
+              @if($po) <div class="small">PO stok: {{ $po }}</div> @endif
             @else
               —
             @endif

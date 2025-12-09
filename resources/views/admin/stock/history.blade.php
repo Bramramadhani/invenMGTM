@@ -23,9 +23,6 @@
       <a href="{{ route('admin.stock.index', ['group' => 'flat']) }}" class="btn btn-secondary">
         <i class="fas fa-arrow-left"></i> Kembali ke Stok
       </a>
-      <a href="{{ route('admin.stock.edit', $stock) }}" class="btn btn-outline-primary">
-        <i class="fas fa-edit"></i> Edit Stok
-      </a>
       @if($poId && $poNo)
         <a href="{{ route('admin.purchase-orders.show', $poId) }}" class="btn btn-outline-secondary" target="_blank">
           <i class="fas fa-file-alt"></i> Lihat PO {{ $poNo }}

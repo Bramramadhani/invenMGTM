@@ -9,7 +9,7 @@ use Illuminate\Http\Request;
 class StockController extends Controller
 {
     /**
-     * Halaman stok.
+     * Halaman stok (hanya stok normal dari Supplier/PO, bukan FOB Buyer).
      * - group = supplier-po  → tampil per Supplier ➜ PO (tanpa pagination baris)
      * - group = flat         → tabel flat dengan pagination
      */
@@ -19,6 +19,7 @@ class StockController extends Controller
         $group = (string) $request->get('group', 'supplier-po');
 
         $query = Stock::with(['supplier', 'purchaseOrder'])
+            ->regular() // hanya stok normal (buyer_id NULL)
             ->search($term)
             ->orderBy('material_code')
             ->orderBy('material_name')

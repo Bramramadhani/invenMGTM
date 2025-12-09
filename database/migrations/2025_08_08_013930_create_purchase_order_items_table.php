@@ -11,10 +11,11 @@ return new class extends Migration
         Schema::create('purchase_order_items', function (Blueprint $table) {
             $table->id();
             $table->foreignId('purchase_order_id')->constrained()->onDelete('cascade');
-            $table->foreignId('product_id')->constrained()->onDelete('cascade');
-            $table->foreignId('category_id')->constrained()->onDelete('cascade');
-            $table->string('unit'); // contoh: pcs, roll, dll
-            $table->integer('ordered_quantity'); // jumlah dipesan
+            // Skip product & category FK as those tables may not exist
+            // $table->foreignId('product_id')->constrained()->onDelete('cascade');
+            // $table->foreignId('category_id')->constrained()->onDelete('cascade');
+            $table->string('unit')->nullable(); // contoh: pcs, roll, dll
+            $table->integer('ordered_quantity')->nullable(); // jumlah dipesan
             $table->integer('actual_arrived_quantity')->default(0); // jumlah aktual datang
             $table->timestamps();
         });

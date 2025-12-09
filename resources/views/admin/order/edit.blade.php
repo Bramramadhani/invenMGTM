@@ -14,7 +14,13 @@
     @csrf
     @method('PUT')
 
-    {{-- === PO & STYLE (readonly) === --}}
+    {{-- Hidden info source_type & buyer untuk JS --}}
+    <input type="hidden" id="sourceType" value="{{ $order->source_type ?? 'po' }}">
+    @if(($order->source_type ?? 'po') === 'fob' && $order->buyer)
+      <input type="hidden" id="urlBuyerStocks" value="{{ route('admin.orders.buyer-stocks', ['buyer' => $order->buyer->id]) }}">
+    @endif
+
+    {{-- === PO & STYLE (readonly) + Sumber Stok === --}}
     <div class="card mb-3">
       <div class="card-header bg-light fw-semibold">
         Sumber PO & Style (terkunci)
@@ -33,6 +39,21 @@
             <label class="form-label">Style</label>
             <input class="form-control" value="{{ $style->style_name ?? $style->name ?? ('Style #'.$style->id) }}" disabled>
           </div>
+        </div>
+
+        <div class="row g-3 mt-3">
+          <div class="col-md-4">
+            <label class="form-label">Sumber Stok</label>
+            <input class="form-control"
+                   value="{{ ($order->source_type ?? 'po') === 'fob' ? 'Stok FOB (Buyer)' : 'Stok PO / Supplier' }}"
+                   disabled>
+          </div>
+          @if(($order->source_type ?? 'po') === 'fob')
+            <div class="col-md-4">
+              <label class="form-label">Buyer (FOB)</label>
+              <input class="form-control" value="{{ optional($order->buyer)->name }}" disabled>
+            </div>
+          @endif
         </div>
       </div>
     </div>
@@ -76,10 +97,16 @@
       </div>
     </div>
 
-    {{-- === TABEL STOK PER PO === --}}
+    {{-- === TABEL STOK === --}}
     <div class="card">
       <div class="card-header d-flex justify-content-between align-items-center">
-        <strong>Stok Tersedia (PO: {{ $po->po_number }})</strong>
+        <strong id="stocksTitle">
+          @if(($order->source_type ?? 'po') === 'fob')
+            Stok Tersedia (FOB / Buyer)
+          @else
+            Stok Tersedia (PO: {{ $po->po_number }})
+          @endif
+        </strong>
         <div class="d-flex gap-2">
           <button type="button" class="btn btn-sm btn-outline-secondary" id="btnClear">
             <i class="fas fa-eraser"></i> Bersihkan
@@ -100,8 +127,8 @@
                 <th style="width:160px">Kode</th>
                 <th>Material</th>
                 <th style="width:100px">Unit</th>
-                <th>Supplier</th>
-                <th style="width:160px">No. PO</th>
+                <th>Supplier / Buyer</th>
+                <th style="width:160px">No. PO (Stok)</th>
                 <th style="width:160px" class="text-end">Tersedia</th>
                 <th style="width:180px" class="text-end">Qty Diminta</th>
                 <th style="width:260px">Catatan Item</th>
@@ -142,7 +169,12 @@
   const btnSelectAll   = document.getElementById('btnSelectAll');
   const btnClear       = document.getElementById('btnClear');
   const form           = document.getElementById('orderForm');
+
   const urlPOStocks    = document.getElementById('urlPOStocks').value;
+  const sourceTypeEl   = document.getElementById('sourceType');
+  const sourceType     = sourceTypeEl ? (sourceTypeEl.value || 'po') : 'po';
+  const urlBuyerStocksEl = document.getElementById('urlBuyerStocks');
+  const urlBuyerStocks = urlBuyerStocksEl ? urlBuyerStocksEl.value : null;
 
   const selCountEl = document.getElementById('selCount');
   const selTotalEl = document.getElementById('selTotal');
@@ -150,7 +182,10 @@
   // map existing items: stock_id => {qty, notes}
   const existing = {
     @foreach($order->items as $it)
-      {{ (int)$it->stock_id }}: { qty: {{ (float)$it->quantity }}, notes: {!! json_encode((string)($it->notes ?? '')) !!} },
+      {{ (int)$it->stock_id }}: {
+        qty: {{ (float)$it->quantity }},
+        notes: {!! json_encode((string)($it->notes ?? '')) !!}
+      },
     @endforeach
   };
 
@@ -160,16 +195,29 @@
     updateSummary();
   }
 
-  // load PO stocks then pre-check existing
+  // load stocks sesuai source_type
   async function loadStocks(){
     resetTable();
 
-    const res = await fetch(urlPOStocks);
-    if (!res.ok) return alert('Gagal memuat stok PO');
-    const data = await res.json();
+    let res;
+    if (sourceType === 'fob') {
+      if (!urlBuyerStocks) {
+        alert('URL stok FOB Buyer tidak tersedia.');
+        return;
+      }
+      res = await fetch(urlBuyerStocks);
+    } else {
+      res = await fetch(urlPOStocks);
+    }
 
-    (data.items || []).forEach((row, idx) => {
+    if (!res.ok) return alert('Gagal memuat stok');
+    const data  = await res.json();
+    const items = data.items || [];
+
+    items.forEach((row, idx) => {
       const tr = document.createElement('tr');
+      const sourceLabel = row.source_label || row.supplier || row.buyer || '—';
+
       tr.innerHTML = `
         <td class="text-center">
           <input type="checkbox" class="chkRow">
@@ -178,7 +226,7 @@
         <td>${row.material_code ? row.material_code : '—'}</td>
         <td class="fw-semibold">${row.material_name}</td>
         <td>${row.unit ?? ''}</td>
-        <td>${row.supplier ?? '—'}</td>
+        <td class="text-start">${sourceLabel}</td>
         <td class="text-center">${row.po_number ?? '—'}</td>
         <td class="text-end availCell">${formatNumber(row.available)}</td>
         <td>
@@ -224,7 +272,6 @@
           hidId.value = row.stock_id;
 
           if (!qty.value || Number(qty.value) <= 0) {
-            // default isi dengan sisa atau 1
             qty.value = ex ? cleanDecimal(ex.qty) : cleanDecimal(row.available);
           }
         } else {

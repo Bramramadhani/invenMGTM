@@ -21,7 +21,9 @@ use App\Http\Controllers\Admin\{
     ProductionIssuePostingController,
     OrderController,
     OutgoingController,
-    ReportController
+    ReportController,
+    BuyerController,
+    FobStockController
 };
 
 Route::get('/', fn () => redirect('login'));
@@ -58,12 +60,45 @@ Route::middleware(['auth'])
         // DASHBOARD
         Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
+        // ==============================
         // MASTER DATA
+        // ==============================
         Route::resource('/supplier', SupplierController::class)->except(['show']);
 
-        // STOK: hanya index (tanpa edit / hapus / riwayat)
+        // Buyer (FOB)
+        Route::resource('/buyers', BuyerController::class)->except(['show']);
+
+        // ==============================
+        // STOK
+        // ==============================
+
+        // Stok normal (dari supplier / PO)
         Route::get('/stock', [StockController::class, 'index'])->name('stock.index');
 
+        // Stok FOB (berdasarkan Buyer, tanpa PO)
+        Route::resource('/fob-stocks', FobStockController::class)
+            ->only(['index', 'create', 'store', 'edit', 'update', 'destroy'])
+            ->names('fob-stocks');
+
+        // Detail + history stok FOB
+        Route::get('/fob-stocks/{fob_stock}/history', [FobStockController::class, 'history'])
+            ->name('fob-stocks.history');
+
+        // Laporan Pembelian FOB (per tanggal / per bulan)
+        Route::get(
+            '/fob-stocks/purchase-report',
+            [FobStockController::class, 'purchaseReport']
+        )->name('fob-stocks.purchase-report');
+
+        // Export Laporan Pembelian FOB ke Excel
+        Route::get(
+            '/fob-stocks/purchase-report/export',
+            [FobStockController::class, 'exportPurchaseReport']
+        )->name('fob-stocks.purchase-report.export');
+
+        // ==============================
+        // PERMISSION & ROLE
+        // ==============================
         Route::resource('/transaction', TransactionController::class);
         Route::resource('/permission',  PermissionController::class)->except(['show']);
         Route::resource('/role',        RoleController::class)->names('role')->except(['show']);
@@ -133,24 +168,34 @@ Route::middleware(['auth'])
         )->name('receipts.correction.update');
 
         // ==============================
-        // ORDERS
+        // ORDERS (Permintaan Barang)
         // ==============================
+
+        // AJAX: daftar PO milik supplier (mode=po → hanya yg punya stok normal; mode=fob → semua PO)
         Route::get(
             '/orders/supplier/{supplier}/pos',
             [OrderController::class, 'supplierPOs']
         )->name('orders.supplier-pos');
 
+        // AJAX: stok per-PO (stok normal)
         Route::get(
             '/orders/po/{purchaseOrder}/stocks',
             [OrderController::class, 'poStocks']
         )->name('orders.po-stocks');
 
-        // NEW: AJAX daftar style per PO
+        // AJAX: stok FOB per Buyer
+        Route::get(
+            '/orders/buyer/{buyer}/stocks',
+            [OrderController::class, 'buyerStocks']
+        )->name('orders.buyer-stocks');
+
+        // AJAX: daftar style per PO
         Route::get(
             '/orders/po/{purchaseOrder}/styles',
             [OrderController::class, 'poStyles']
         )->name('orders.po-styles');
 
+        // Resource utama permintaan barang
         Route::resource('/orders', OrderController::class)
             ->only(['index', 'show', 'create', 'store', 'edit', 'update', 'destroy'])
             ->names('orders');

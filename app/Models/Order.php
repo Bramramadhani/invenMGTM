@@ -15,11 +15,13 @@ class Order extends Model
         'name',
         'notes',
         'production_name',
-        'production_leader_name',   
+        'production_leader_name',
         'warehouse_admin_name',
         'warehouse_leader_name',
         'supply_chain_head_name',
         'purchase_order_style_id',
+        'source_type',     
+        'buyer_id',        
     ];
 
     public function user()
@@ -41,6 +43,14 @@ class Order extends Model
         return $this->belongsTo(PurchaseOrderStyle::class, 'purchase_order_style_id');
     }
 
+    /**
+     * Buyer untuk permintaan dari stok FOB.
+     */
+    public function buyer()
+    {
+        return $this->belongsTo(Buyer::class);
+    }
+
     // (opsional) accessor image kalau masih dipakai
     public function getImageAttribute($image)
     {
@@ -56,5 +66,13 @@ class Order extends Model
             'success'  => 'Selesai',
         ];
         return $map[strtolower($raw)] ?? $raw;
+    }
+
+    /**
+     * Helper sederhana untuk cek apakah order ini dari stok FOB.
+     */
+    public function isFob(): bool
+    {
+        return ($this->source_type ?? 'po') === 'fob';
     }
 }

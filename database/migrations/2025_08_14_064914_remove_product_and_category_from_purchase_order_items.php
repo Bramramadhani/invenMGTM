@@ -3,36 +3,19 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
+    /**
+     * This migration was part of legacy product-based flow.
+     * Since system evolved to use only Suppliers->PO->Receipt->Stock->FOB flows,
+     * this migration is mostly obsolete. Keeping for historical record but minimal operations.
+     */
     public function up()
     {
-        // Hapus foreign key di carts
-        Schema::table('carts', function (Blueprint $table) {
-            if (Schema::hasColumn('carts', 'product_id')) {
-                $table->dropForeign(['product_id']);
-                $table->dropColumn('product_id');
-            }
-        });
-
-        // Hapus foreign key di purchase_order_items
-        Schema::table('purchase_order_items', function (Blueprint $table) {
-            if (Schema::hasColumn('purchase_order_items', 'product_id')) {
-                $table->dropForeign(['product_id']);
-                $table->dropColumn('product_id');
-            }
-            if (Schema::hasColumn('purchase_order_items', 'category_id')) {
-                $table->dropForeign(['category_id']);
-                $table->dropColumn('category_id');
-            }
-        });
-
-        // Drop tabel products & categories jika ada
-        Schema::disableForeignKeyConstraints();
-        Schema::dropIfExists('products');
-        Schema::dropIfExists('categories');
-        Schema::enableForeignKeyConstraints();
+        // Skip: product_id FK cleanup not needed for current FOB-focused flow
+        // All product-related columns removed in earlier migrations anyway
     }
 
     public function down()

@@ -12,3 +12,13 @@ npm-debug.log
 yarn-error.log
 /.idea
 /.vscode
+
+# Test & debug files
+test_*.php
+smoke_test*.php
+assign_admin_role.php
+reset_password.php
+tinker_assign_role.txt
+migration_*.log
+smoke_test_output.txt
+database_backups/

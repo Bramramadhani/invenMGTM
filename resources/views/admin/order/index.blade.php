@@ -50,6 +50,7 @@
               <th style="width:150px">Supply&nbsp;Chain<br>Head</th>
               <th style="width:120px">Tanggal</th>
               <th style="width:90px">Jam</th>
+              <th style="width:150px">Sumber Stok</th>
               <th style="width:120px">Status</th>
               <th style="width:220px">Aksi</th>
             </tr>
@@ -64,6 +65,11 @@
                   'selesai'             => 'bg-success',
                   default               => 'bg-secondary',
                 };
+
+                $sourceType  = $o->source_type ?? 'po';
+                $sourceLabel = $sourceType === 'fob'
+                  ? 'Stok FOB' . (optional($o->buyer)->name ? ' ('.optional($o->buyer)->name.')' : '')
+                  : 'Stok PO / Supplier';
               @endphp
               <tr>
                 <td class="fw-semibold text-center">{{ $o->name ?? '—' }}</td>
@@ -74,6 +80,7 @@
                 <td class="text-center">{{ $o->supply_chain_head_name ?? '—' }}</td>
                 <td class="text-center">{{ optional($o->created_at)->format('d-m-Y') }}</td>
                 <td class="text-center">{{ optional($o->created_at)->format('H:i') }}</td>
+                <td class="text-center">{{ $sourceLabel }}</td>
                 <td class="text-center">
                   <span class="badge {{ $badgeClass }}">{{ $o->status }}</span>
                 </td>
@@ -93,7 +100,7 @@
               </tr>
             @empty
               <tr>
-                <td colspan="10" class="text-center text-muted">Tidak ada data permintaan barang.</td>
+                <td colspan="11" class="text-center text-muted">Tidak ada data permintaan barang.</td>
               </tr>
             @endforelse
           </tbody>

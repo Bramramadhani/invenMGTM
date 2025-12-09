@@ -13,15 +13,21 @@ return new class extends Migration
      */
     public function up()
     {
+        // Skip if table already exists
+        if (Schema::hasTable('transaction_details')) {
+            return;
+        }
+
         Schema::create('transaction_details', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('transaction_id');
-            $table->unsignedBigInteger('product_id');
+            $table->unsignedBigInteger('product_id')->nullable();
             $table->double('quantity');
             $table->timestamps();
 
             $table->foreign('transaction_id')->references('id')->on('transactions');
-            $table->foreign('product_id')->references('id')->on('products');
+            // Skip products FK as table does not exist
+            // $table->foreign('product_id')->references('id')->on('products');
         });
     }
 

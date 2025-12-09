@@ -16,13 +16,16 @@
       font-size: .9rem;
     }
 
-    .table-outgoing .col-date   { width: 170px; white-space: nowrap; }
-    .table-outgoing .col-code   { width: 110px; white-space: nowrap; text-align: center; }
-    .table-outgoing .col-unit   { width: 80px;  text-align: center; }
-    .table-outgoing .col-po     { width: 140px; white-space: nowrap; text-align: center; }
-    .table-outgoing .col-style  { width: 140px; text-align: center; }
-    .table-outgoing .col-qty    { width: 120px; text-align: right; }
-    .table-outgoing .col-notes  { min-width: 180px; }
+    .table-outgoing .col-date     { width: 110px; text-align: center; }
+    .table-outgoing .col-time     { width: 80px;  text-align: center; }
+    .table-outgoing .col-code     { width: 110px; text-align: center; }
+    .table-outgoing .col-unit     { width: 80px;  text-align: center; }
+    .table-outgoing .col-supplier { width: 140px; }
+    .table-outgoing .col-buyer    { width: 140px; }
+    .table-outgoing .col-po       { width: 120px; text-align: center; }
+    .table-outgoing .col-style    { width: 130px; text-align: center; }
+    .table-outgoing .col-qty      { width: 120px; text-align: right; }
+    .table-outgoing .col-notes    { min-width: 180px; }
 
     .table-outgoing .material-cell {
       font-weight: 600;
@@ -71,10 +74,12 @@
           <thead class="table-light">
             <tr>
               <th class="col-date">Tanggal</th>
+              <th class="col-time">Jam</th>
               <th class="col-code">Kode</th>
               <th class="text-start">Material</th>
               <th class="col-unit">Unit</th>
-              <th>Supplier</th>
+              <th class="col-supplier">Supplier</th>
+              <th class="col-buyer">Buyer</th>
               <th class="col-po">Nomor PO</th>
               <th class="col-style">Style</th>
               <th class="col-qty">Qty OUT</th>
@@ -87,6 +92,17 @@
                 // Tanggal / jam
                 $dt = optional($m->moved_at);
 
+                // Stock
+                $stock = $m->stock;
+
+                // Supplier: prioritas dari movement, fallback dari stock
+                $supplierName = optional($m->supplier)->name
+                    ?? optional(optional($stock)->supplier)->name
+                    ?? null;
+
+                // Buyer: dari stock (untuk FOB)
+                $buyerName = optional(optional($stock)->buyer)->name ?? null;
+
                 // Cari style lewat relasi Order / OrderItem -> Order -> PurchaseOrderStyle
                 $order = $m->order ?? optional($m->orderItem)->order ?? null;
                 $style = optional(optional($order)->purchaseOrderStyle);
@@ -97,10 +113,14 @@
               @endphp
 
               <tr>
-                {{-- TANGGAL + JAM --}}
+                {{-- TANGGAL --}}
                 <td class="col-date text-center">
-                  <div>{{ $dt->format('d-m-Y') }}</div>
-                  <div class="text-muted small">{{ $dt->format('H:i') }}</div>
+                  {{ $dt ? $dt->format('d-m-Y') : '—' }}
+                </td>
+
+                {{-- JAM --}}
+                <td class="col-time text-center">
+                  {{ $dt ? $dt->format('H:i') : '—' }}
                 </td>
 
                 {{-- KODE --}}
@@ -119,8 +139,13 @@
                 </td>
 
                 {{-- SUPPLIER --}}
-                <td class="text-start">
-                  {{ optional($m->supplier)->name ?? '—' }}
+                <td class="col-supplier text-start">
+                  {{ $supplierName ?? '—' }}
+                </td>
+
+                {{-- BUYER --}}
+                <td class="col-buyer text-start">
+                  {{ $buyerName ?? '—' }}
                 </td>
 
                 {{-- NOMOR PO --}}
@@ -145,7 +170,7 @@
               </tr>
             @empty
               <tr>
-                <td colspan="9" class="text-center text-muted">Tidak ada data.</td>
+                <td colspan="11" class="text-center text-muted">Tidak ada data.</td>
               </tr>
             @endforelse
           </tbody>

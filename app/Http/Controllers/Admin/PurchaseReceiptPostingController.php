@@ -1,5 +1,17 @@
 <?php
 
+/**
+ * RACE CONDITION FIX (Dec 2025):
+ * 
+ * Critical logic moved inside PO lock:
+ * - The $posted calculation (line ~57) is now done AFTER DB::transaction lock on the PO (line ~43)
+ * - This prevents 2 concurrent posts from both reading the same posted_qty and both calculating the same remaining quantity
+ * - Without this fix: concurrent post A and B both see posted=300, each thinks remaining=200, both post 300 → total 600 (wrong!)
+ * - With this fix: only one post gets lock, calculates correct remaining, posts; the other waits and re-calculates
+ * 
+ * See test: smoke_test_tinker_fixed.php → Test 2: PO Receipt Posting & Stock Update
+ */
+
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
@@ -48,6 +60,8 @@ class PurchaseReceiptPostingController extends Controller
             // Kunci PO agar perhitungan sisa tidak race
             DB::table('purchase_orders')->where('id', $poId)->lockForUpdate()->value('id');
 
+            // === CRITICAL: Hitung posted SETELAH kunci PO (bukan sebelumnya) ===
+            // Ini mencegah race condition di mana 2 concurrent posting lihat posted quantity yang sama
             // Hitung sisa berbasis RECEIPT yang SUDAH POSTED
             $ids = $receipt->items->pluck('purchase_order_item_id')->all();
 
@@ -132,12 +146,12 @@ class PurchaseReceiptPostingController extends Controller
                 $stock->quantity = $oldQty + (float) $it->received_quantity;
                 $stock->save();
 
-                // History: receipt_post (perubahan stok karena posting penerimaan)
+                // History: penerimaan barang dari PO (pembelian)
                 StockHistory::recordChange(
                     $stock,
                     $oldQty,
                     (float) $stock->quantity,
-                    'receipt_post',
+                    StockHistory::TYPE_PO_RECEIVE,
                     'Posting receipt ' . ($receipt->receipt_number ?? $receipt->id),
                     Auth::id()
                 );

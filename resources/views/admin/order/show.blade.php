@@ -17,6 +17,10 @@
 
     // Style dari relasi ke PurchaseOrderStyle
     $style = optional($order->purchaseOrderStyle ?? null);
+
+    $sourceType  = $order->source_type ?? 'po';
+    $sourceLabel = $sourceType === 'fob' ? 'Stok FOB (Buyer)' : 'Stok PO / Supplier';
+    $buyer       = $order->buyer;
   @endphp
 
   <style>
@@ -112,7 +116,19 @@
         </div>
       </div>
 
-      {{-- Baris 4: Style + ringkasan item (SEJAJAR) --}}
+      {{-- Baris 4: Sumber Stok & Buyer --}}
+      <div class="row g-3 mt-2">
+        <div class="col-md-3">
+          <div class="text-muted small">Sumber Stok</div>
+          <div class="fw-semibold">{{ $sourceLabel }}</div>
+        </div>
+        <div class="col-md-3">
+          <div class="text-muted small">Buyer (FOB)</div>
+          <div class="fw-semibold">{{ optional($buyer)->name ?? '—' }}</div>
+        </div>
+      </div>
+
+      {{-- Baris 5: Style + ringkasan item (SEJAJAR) --}}
       <div class="row g-3 mt-3 align-items-center">
         <div class="col-md-3">
           <div class="text-muted small mb-1">Style</div>
@@ -157,8 +173,8 @@
               <th style="width:140px">Kode</th>
               <th>Material</th>
               <th style="width:90px">Unit</th>
-              <th style="width:180px">Supplier</th>
-              <th style="width:160px">No. PO</th>
+              <th style="width:180px">Supplier / Buyer</th>
+              <th style="width:160px">No. PO (Stok)</th>
               <th style="width:140px">Qty Diminta</th>
               <th>Catatan Item</th>
             </tr>
@@ -166,17 +182,20 @@
           <tbody>
             @forelse ($order->items as $it)
               @php
-                $stock = $it->stock;
-                $po    = optional($stock?->purchaseOrder);
-                $poId  = $po->id ?? null;
-                $poNo  = $po->po_number ?? null;
+                $stock        = $it->stock;
+                $po           = optional($stock?->purchaseOrder);
+                $poId         = $po->id ?? null;
+                $poNo         = $po->po_number ?? null;
+                $supplierName = optional($stock?->supplier)->name;
+                $buyerNameRow = optional($stock?->buyer)->name;
+                $sourceCell   = $supplierName ?: $buyerNameRow ?: '—';
               @endphp
               <tr>
                 <td>{{ $loop->iteration }}</td>
                 <td>{{ $it->material_code ?: '—' }}</td>
                 <td class="fw-semibold text-start">{{ $it->material_name }}</td>
                 <td>{{ $it->unit }}</td>
-                <td class="text-start">{{ optional($stock?->supplier)->name ?? '—' }}</td>
+                <td class="text-start">{{ $sourceCell }}</td>
                 <td>
                   @if ($poId)
                     <a href="{{ route('admin.purchase-orders.show', $poId) }}">

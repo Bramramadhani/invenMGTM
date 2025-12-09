@@ -8,8 +8,9 @@ use Illuminate\Database\Eloquent\Builder;
 class Stock extends Model
 {
     protected $fillable = [
-        'purchase_order_id',  // batch ini milik PO mana
-        'supplier_id',
+        'purchase_order_id',  // batch ini milik PO mana (untuk stok normal)
+        'supplier_id',        // supplier (stok normal)
+        'buyer_id',           // buyer (stok FOB) - boleh null
         'material_name',
         'material_code',
         'unit',
@@ -23,6 +24,7 @@ class Stock extends Model
         'quantity'          => 'decimal:4',
         'purchase_order_id' => 'integer',
         'supplier_id'       => 'integer',
+        'buyer_id'          => 'integer',
         // 'last_po_id'      => 'integer',
     ];
 
@@ -39,6 +41,8 @@ class Stock extends Model
         });
     }
 
+    // ===================== RELASI =====================
+
     public function supplier()
     {
         return $this->belongsTo(\App\Models\Supplier::class);
@@ -50,15 +54,25 @@ class Stock extends Model
     }
 
     /**
-     * Riwayat perubahan stok (manual_edit, manual_delete, dsb).
+     * Buyer (untuk stok FOB).
+     */
+    public function buyer()
+    {
+        return $this->belongsTo(\App\Models\Buyer::class, 'buyer_id');
+    }
+
+    /**
+     * Riwayat perubahan stok (manual_edit, receipt_correction, fob_edit, dll).
      */
     public function histories()
     {
         return $this->hasMany(\App\Models\StockHistory::class);
     }
 
+    // ===================== SCOPES =====================
+
     /**
-     * Pencarian cepat: nama, KODE material, unit, NO PO, nama supplier.
+     * Pencarian cepat: nama, KODE material, unit, NO PO, nama supplier, nama/kode buyer.
      */
     public function scopeSearch(Builder $q, ?string $term)
     {
@@ -69,12 +83,18 @@ class Stock extends Model
             $qq->where('material_name', 'like', $like)
                ->orWhere('material_code', 'like', $like)
                ->orWhere('unit', 'like', $like)
-               // HAPUS last_po_number; cukup cari via relasi PO
+               // Cari via Supplier
                ->orWhereHas('supplier', function (Builder $qs) use ($like) {
                    $qs->where('name', 'like', $like);
                })
+               // Cari via Purchase Order
                ->orWhereHas('purchaseOrder', function (Builder $qs) use ($like) {
                    $qs->where('po_number', 'like', $like);
+               })
+               // Cari via Buyer (untuk stok FOB)
+               ->orWhereHas('buyer', function (Builder $qb) use ($like) {
+                   $qb->where('name', 'like', $like)
+                      ->orWhere('code', 'like', $like);
                });
         });
     }
@@ -89,12 +109,38 @@ class Stock extends Model
         return $q->when($supplierId, fn (Builder $qq) => $qq->where('supplier_id', $supplierId));
     }
 
+    /**
+     * Filter by Buyer (untuk laporan / tampilan FOB).
+     */
+    public function scopeForBuyer(Builder $q, $buyerId)
+    {
+        return $q->when($buyerId, fn (Builder $qq) => $qq->where('buyer_id', $buyerId));
+    }
+
+    /**
+     * Stok normal (dari PO/supplier) → buyer_id = NULL.
+     */
+    public function scopeRegular(Builder $q)
+    {
+        return $q->whereNull('buyer_id');
+    }
+
+    /**
+     * Stok FOB (punya Buyer) → buyer_id TIDAK NULL.
+     */
+    public function scopeFob(Builder $q)
+    {
+        return $q->whereNotNull('buyer_id');
+    }
+
     public function scopeOrderNice(Builder $q)
     {
         return $q->orderBy('material_code')
                  ->orderBy('material_name')
                  ->orderBy('unit');
     }
+
+    // ===================== ACCESSOR =====================
 
     public function getDisplayLabelAttribute(): string
     {

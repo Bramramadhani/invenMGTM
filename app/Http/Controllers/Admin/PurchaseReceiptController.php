@@ -506,12 +506,12 @@ class PurchaseReceiptController extends Controller
                     ]);
                 }
 
-                // History stok (receipt_correction)
+                // History stok (koreksi penerimaan dari PO)
                 StockHistory::recordChange(
                     $stock,
                     $stockOld,
                     $stockNew,
-                    'receipt_correction',
+                    StockHistory::TYPE_PO_CORRECTION,
                     $reason,
                     Auth::id()
                 );

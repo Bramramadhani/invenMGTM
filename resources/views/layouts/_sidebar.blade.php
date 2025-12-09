@@ -18,7 +18,7 @@
         <div class="collapse navbar-collapse" id="navbar-menu">
             <ul class="navbar-nav pt-lg-3">
                 <div class="hr-text hr-text-left ml-2 mb-2 mt-2">Dashboard</div>
-                @hasanyrole('Admin|Super Admin')
+                @hasanyrole('admin|super admin')
                     <li class="nav-item">
                         <a class="nav-link {{ Route::is('admin.dashboard') ? 'active' : '' }}" href="{{ route('admin.dashboard') }}">
                              <span class="nav-link-icon d-md-none d-lg-inline-block mr-1">
@@ -84,6 +84,48 @@
                             </span>
                         </a>
                     </li>
+
+                     {{-- Buyer (FOB) --}}
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('admin.buyers.*') ? 'active' : '' }}"
+                           href="{{ route('admin.buyers.index') }}">
+                            <span class="nav-link-icon d-md-none d-lg-inline-block mr-1">
+                                <svg xmlns="http://www.w3.org/2000/svg"
+                                     class="icon icon-tabler icon-tabler-user-circle" width="24" height="24"
+                                     viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none"
+                                     stroke-linecap="round" stroke-linejoin="round">
+                                    <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+                                    <circle cx="12" cy="12" r="9" />
+                                    <circle cx="12" cy="10" r="3" />
+                                    <path d="M6 18c1.5 -2 3.5 -3 6 -3s4.5 1 6 3" />
+                                </svg>
+                            </span>
+                            <span class="nav-link-title">
+                                Buyer (FOB)
+                            </span>
+                        </a>
+                    </li>
+
+                    {{-- STOK FOB (BUYER) BARU --}}
+                    <li class="nav-item">
+                        <a class="nav-link {{ Route::is('admin.fob-stocks*') ? 'active' : '' }}" href="{{ route('admin.fob-stocks.index') }}">
+                            <span class="nav-link-icon d-md-none d-lg-inline-block mr-1">
+                                <svg xmlns="http://www.w3.org/2000/svg"
+                                    class="icon icon-tabler icon-tabler-box" width="24" height="24"
+                                    viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none"
+                                    stroke-linecap="round" stroke-linejoin="round">
+                                    <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
+                                    <polyline points="12 3 20 7 12 11 4 7 12 3"></polyline>
+                                    <polyline points="4 7 4 17 12 21 20 17 20 7"></polyline>
+                                    <line x1="12" y1="11" x2="12" y2="21"></line>
+                                </svg>
+                            </span>
+                            <span class="nav-link-title">
+                                Stok FOB 
+                            </span>
+                        </a>
+                    </li>
+
                     <div class="hr-text hr-text-left ml-2 mb-2 mt-2">Transaksi</div>
                     <li class="nav-item">
                         <a class="nav-link {{ Route::is('admin.purchase-orders*') ? 'active' : '' }}" href="{{ route('admin.purchase-orders.index') }}">
