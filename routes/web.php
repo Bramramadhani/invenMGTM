@@ -50,6 +50,13 @@ Route::post('password/reset', [ResetPasswordController::class, 'reset'])
     ->name('password.update');
 
 // ==============================
+// USER DASHBOARD (alias aman)
+// ==============================
+// Jika ada user non-admin diarahkan ke /dashboard, bawa ke admin.dashboard saja agar tidak 404
+Route::middleware('auth')->get('/dashboard', fn () => redirect()->route('admin.dashboard'))
+    ->name('user.dashboard');
+
+// ==============================
 // ADMIN AREA
 // ==============================
 Route::middleware(['auth'])
@@ -57,7 +64,10 @@ Route::middleware(['auth'])
     ->name('admin.')
     ->group(function () {
 
-        // DASHBOARD
+        // ALIAS: /admin → /admin/dashboard (tanpa nama rute supaya tidak bentrok)
+        Route::get('/', fn () => redirect()->route('admin.dashboard'));
+
+        // DASHBOARD (rute resmi admin)
         Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
         // ==============================
