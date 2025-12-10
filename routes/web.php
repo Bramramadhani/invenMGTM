@@ -52,7 +52,7 @@ Route::post('password/reset', [ResetPasswordController::class, 'reset'])
 // ==============================
 // USER DASHBOARD (alias aman)
 // ==============================
-// Jika ada user non-admin diarahkan ke /dashboard, bawa ke admin.dashboard saja agar tidak 404
+// Jika ada user non-admin diarahkan ke /dashboard, bawa ke admin.dashboard agar tidak 404
 Route::middleware('auth')->get('/dashboard', fn () => redirect()->route('admin.dashboard'))
     ->name('user.dashboard');
 

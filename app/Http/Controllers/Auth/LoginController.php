@@ -11,7 +11,7 @@ class LoginController extends Controller
 {
     use \Illuminate\Foundation\Auth\AuthenticatesUsers;
 
-    // Abaikan redirectTo bawaan; kita override via authenticated()
+    // Nilai bawaan tidak dipakai karena kita override via authenticated()
     protected $redirectTo = '/home';
 
     public function __construct()
