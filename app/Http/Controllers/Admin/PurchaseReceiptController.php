@@ -43,6 +43,7 @@ class PurchaseReceiptController extends Controller
 
     /**
      * Simpan draft penerimaan (status: draft).
+     * Sekarang diperbolehkan qty > ordered_quantity (over-receive).
      */
     public function store(Request $request, PurchaseOrder $purchaseOrder)
     {
@@ -75,6 +76,7 @@ class PurchaseReceiptController extends Controller
             ]);
         }
 
+        // Pastikan semua item benar-benar milik PO ini
         $itemIds = array_column($filtered, 'purchase_order_item_id');
         $validIds = PurchaseOrderItem::where('purchase_order_id', $purchaseOrder->id)
             ->whereIn('id', $itemIds)
@@ -87,38 +89,8 @@ class PurchaseReceiptController extends Controller
             ]);
         }
 
-        // Ambil total penerimaan sebelumnya (receipt sudah POSTED)
-        $posted = DB::table('purchase_receipt_items as pri')
-            ->join('purchase_receipts as pr', 'pr.id', '=', 'pri.purchase_receipt_id')
-            ->where('pr.status', PurchaseReceipt::STATUS_POSTED)
-            ->whereIn('pri.purchase_order_item_id', $itemIds)
-            ->groupBy('pri.purchase_order_item_id')
-            ->selectRaw('pri.purchase_order_item_id, SUM(pri.received_quantity) AS received_total')
-            ->pluck('received_total', 'purchase_order_item_id');
-
-        $ordered = PurchaseOrderItem::whereIn('id', $itemIds)
-            ->pluck('ordered_quantity', 'id');
-
-        // Validasi sisa qty
-        $errors = [];
-        foreach ($filtered as $row) {
-            $id  = $row['purchase_order_item_id'];
-            $qty = (float) $row['received_quantity'];
-
-            $ord      = (float) ($ordered[$id] ?? 0);
-            $recSoFar = (float) ($posted[$id] ?? 0);
-            $remaining = max(0, $ord - $recSoFar);
-
-            if ($remaining <= 0) {
-                $errors["items.{$row['index']}.received_quantity"] = "Item #{$id} sudah terpenuhi (sisa 0).";
-            } elseif ($qty > $remaining) {
-                $errors["items.{$row['index']}.received_quantity"] = "Qty ({$qty}) melebihi sisa ({$remaining}) untuk item #{$id}.";
-            }
-        }
-
-        if (!empty($errors)) {
-            throw ValidationException::withMessages($errors);
-        }
+        // Catatan: tidak ada lagi validasi "sisa qty" di sini.
+        // Sistem boleh menyimpan draft penerimaan dengan qty > ordered_quantity.
 
         DB::transaction(function () use ($purchaseOrder, $data, $filtered) {
             // Lock PO
@@ -340,11 +312,6 @@ class PurchaseReceiptController extends Controller
 
     /**
      * Simpan koreksi untuk PurchaseReceipt POSTED.
-     *
-     * - Update qty di PurchaseReceiptItem
-     * - Sesuaikan stok (Stock + StockMovement + StockHistory)
-     * - Recalc actual_arrived_quantity + is_completed
-     * - Simpan alasan koreksi ke notes receipt
      */
     public function updateCorrection(Request $request, PurchaseReceipt $receipt)
     {
@@ -438,7 +405,7 @@ class PurchaseReceiptController extends Controller
                 $ordered     = (float) $poi->ordered_quantity;
                 $otherPosted = (float) ($postedOther[$poi->id] ?? 0.0);
 
-                // Validasi total jangan melebihi qty PO
+                // Validasi total jangan melebihi qty PO (koreksi tidak boleh tambah over lagi)
                 if ($otherPosted + $newQty > $ordered + 0.0000001) {
                     throw ValidationException::withMessages([
                         'items' => "Koreksi untuk '{$poi->material_name}' melebihi qty PO. "

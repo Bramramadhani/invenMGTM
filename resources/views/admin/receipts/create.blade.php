@@ -96,13 +96,12 @@
                     name="items[{{ $loop->index }}][received_quantity]"
                     value="{{ $oldQty }}"
                     placeholder="0"
-                    max="{{ $remaining }}"
                     aria-describedby="help-qty-{{ $loop->index }}"
                   >
                   <span class="input-group-text">{{ $row->unit }}</span>
                 </div>
                 <small id="help-qty-{{ $loop->index }}" class="text-muted d-block text-center">
-                  Sisa: {{ qty_fmt($remaining) }}
+                  Sisa (berdasar PO): {{ qty_fmt($remaining) }}
                 </small>
                 @error("items.{$loop->index}.received_quantity")
                   <div class="text-danger small mt-1">{{ $message }}</div>

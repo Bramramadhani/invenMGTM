@@ -2,14 +2,12 @@
 
 /**
  * RACE CONDITION FIX (Dec 2025):
- * 
- * Critical logic moved inside PO lock:
- * - The $posted calculation (line ~57) is now done AFTER DB::transaction lock on the PO (line ~43)
- * - This prevents 2 concurrent posts from both reading the same posted_qty and both calculating the same remaining quantity
- * - Without this fix: concurrent post A and B both see posted=300, each thinks remaining=200, both post 300 → total 600 (wrong!)
- * - With this fix: only one post gets lock, calculates correct remaining, posts; the other waits and re-calculates
- * 
- * See test: smoke_test_tinker_fixed.php → Test 2: PO Receipt Posting & Stock Update
+ *
+ * - Proses posting receipt + update stok dilakukan di dalam satu DB::transaction
+ *   dengan lock pada Purchase Order terkait.
+ * - Ini mencegah 2 proses concurrent mengupdate stok PO yang sama secara tidak konsisten.
+ *
+ * Catatan: Validasi "qty <= sisa" dihapus agar over-receive diperbolehkan.
  */
 
 namespace App\Http\Controllers\Admin;
@@ -57,40 +55,12 @@ class PurchaseReceiptPostingController extends Controller
             // supplier per-PO (bukan per item)
             $supplierId = $po->supplier_id;
 
-            // Kunci PO agar perhitungan sisa tidak race
+            // Kunci PO agar update stok & agregat konsisten
             DB::table('purchase_orders')->where('id', $poId)->lockForUpdate()->value('id');
 
-            // === CRITICAL: Hitung posted SETELAH kunci PO (bukan sebelumnya) ===
-            // Ini mencegah race condition di mana 2 concurrent posting lihat posted quantity yang sama
-            // Hitung sisa berbasis RECEIPT yang SUDAH POSTED
-            $ids = $receipt->items->pluck('purchase_order_item_id')->all();
-
-            $ordered = $po->items->pluck('ordered_quantity', 'id');
-
-            $posted = DB::table('purchase_receipt_items as pri')
-                ->join('purchase_receipts as pr', 'pr.id', '=', 'pri.purchase_receipt_id')
-                ->where('pr.status', 'posted')
-                ->whereIn('pri.purchase_order_item_id', $ids)
-                ->groupBy('pri.purchase_order_item_id')
-                ->selectRaw('pri.purchase_order_item_id, SUM(pri.received_quantity) AS received_total')
-                ->pluck('received_total', 'purchase_order_item_id');
-
-            $violations = [];
-            foreach ($receipt->items as $it) {
-                if ((float)$it->received_quantity <= 0) {
-                    continue;
-                }
-                $itemId    = (int) $it->purchase_order_item_id;
-                $remaining = max(0, (float)($ordered[$itemId] ?? 0) - (float)($posted[$itemId] ?? 0));
-
-                if ((float)$it->received_quantity > $remaining) {
-                    $violations[] = "{$it->material_name}: qty {$it->received_quantity} > sisa {$remaining}";
-                }
-            }
-
-            if ($violations) {
-                return back()->with('warning', 'Tidak bisa posting (melebihi sisa): ' . implode(' | ', $violations));
-            }
+            // Catatan: di sini TIDAK ada lagi validasi "melebihi sisa".
+            // Over-receive diperbolehkan; stok dan actual_arrived_quantity
+            // tetap dihitung berdasarkan semua receipt POSTED.
 
             // 1) Tambah stok per item (per-PO) + movement IN pada tanggal penerimaan
             foreach ($receipt->items as $it) {
@@ -114,11 +84,7 @@ class PurchaseReceiptPostingController extends Controller
                  *
                  * Di DB VPS kamu sudah ada unique index
                  *   stocks_unique_sup_mat_unit_po_v2
-                 * yang kemungkinan besar isinya:
-                 *   (supplier_id, material_name, unit, purchase_order_id)
-                 *
-                 * Jadi di sini kita cari stok EXISTING berdasarkan kombinasi itu,
-                 * lalu kalau tidak ada baru buat baris baru.
+                 *   (kemungkinan: supplier_id, material_name, unit, purchase_order_id)
                  */
 
                 $stock = Stock::where('purchase_order_id', $poId)
@@ -142,7 +108,7 @@ class PurchaseReceiptPostingController extends Controller
                 $stock->last_po_id      = $poId;
                 $stock->last_po_number  = $poNumber;
 
-                $oldQty        = (float) $stock->quantity;
+                $oldQty          = (float) $stock->quantity;
                 $stock->quantity = $oldQty + (float) $it->received_quantity;
                 $stock->save();
 
@@ -191,7 +157,7 @@ class PurchaseReceiptPostingController extends Controller
                 'posted_by' => Auth::id(),
             ]);
 
-            // 4) Tandai PO complete bila seluruh item terpenuhi (berdasarkan POSTED)
+            // 4) Tandai PO complete bila total RECEIVED >= ORDERED
             $po = $receipt->purchaseOrder->fresh('items');
 
             $postedPerItem = DB::table('purchase_receipt_items as pri')

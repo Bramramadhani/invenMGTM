@@ -4,13 +4,6 @@
 <div class="container">
   <h4 class="mb-4">Edit Purchase Order — {{ $purchaseOrder->po_number }}</h4>
 
-  @if ($errors->any())
-    <div class="alert alert-danger">
-      <ul class="mb-0">
-        @foreach ($errors->all() as $error) <li>{{ $error }}</li> @endforeach
-      </ul>
-    </div>
-  @endif
 
   @php
     // Helper lokal: format qty tanpa nol belakang
@@ -318,11 +311,7 @@
     const rows = itemsTbody.querySelectorAll('tr');
     if (rows.length <= 1) {
       rows[0].querySelectorAll('input').forEach(i => {
-        if (i.type === 'hidden') {
-          i.value = '';
-        } else {
-          i.value = '';
-        }
+        i.value = '';
       });
       return;
     }
@@ -332,7 +321,7 @@
 
   // === Styles PO ===
   let nextStyleIdx = {{ count($styleRows) ? count($styleRows) : 1 }};
-  const stylesTbody = document.querySelector('#stylesTable tbody';
+  const stylesTbody = document.querySelector('#stylesTable tbody');
 
   function renumberStyles() {
     stylesTbody.querySelectorAll('tr').forEach((row, i) => {
