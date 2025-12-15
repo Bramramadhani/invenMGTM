@@ -145,17 +145,26 @@ class FobStockController extends Controller
 
         $buyers = Buyer::orderBy('name')->get();
 
+        // Ambil harga satuan awal (history TYPE_FOB_CREATE untuk stok ini)
+        $initialUnitPrice = StockHistory::where('stock_id', $fob_stock->id)
+            ->where('type', StockHistory::TYPE_FOB_CREATE)
+            ->orderBy('id')
+            ->value('unit_price');
+
         // KIRIM ke view sebagai $stock (bukan $fob_stock)
         return view('admin.fob_stocks.edit', [
-            'stock'  => $fob_stock,
-            'buyers' => $buyers,
+            'stock'            => $fob_stock,
+            'buyers'           => $buyers,
+            'initialUnitPrice' => $initialUnitPrice,
         ]);
     }
 
     /**
      * Update stok FOB (koreksi stok).
-     * Di sini tidak kita pakai harga, supaya laporan pembelian
-     * tetap fokus pada transaksi awal (fob_create).
+     *
+     * Logika lama tetap dipakai untuk qty (delta dicatat sebagai koreksi),
+     * dan jika user mengisi unit_price, harga pembelian awal (TYPE_FOB_CREATE)
+     * ikut dikoreksi supaya laporan pembelian FOB memakai harga terbaru.
      */
     public function update(Request $request, Stock $fob_stock)
     {
@@ -169,6 +178,7 @@ class FobStockController extends Controller
                 'material_name' => ['required', 'string', 'max:255'],
                 'unit'          => ['required', 'string', 'max:20'],
                 'quantity'      => ['required', 'numeric', 'min:0.0001'],
+                'unit_price'    => ['nullable', 'numeric', 'min:0'],
                 'reason'        => ['nullable', 'string', 'max:255'],
             ],
             [],
@@ -178,6 +188,7 @@ class FobStockController extends Controller
                 'material_name' => 'Nama Material',
                 'unit'          => 'Unit',
                 'quantity'      => 'Qty',
+                'unit_price'    => 'Harga Satuan',
             ]
         );
 
@@ -186,6 +197,10 @@ class FobStockController extends Controller
             $afterQty  = (float) $validatedData['quantity'];
             $delta     = $afterQty - $beforeQty;
             $reason    = $validatedData['reason'] ?? null;
+
+            $unitPrice = array_key_exists('unit_price', $validatedData) && $validatedData['unit_price'] !== null
+                ? (float) $validatedData['unit_price']
+                : null;
 
             // Update data stok
             $fob_stock->update([
@@ -197,7 +212,7 @@ class FobStockController extends Controller
                 'quantity'      => $afterQty,
             ]);
 
-            // History koreksi stok FOB (tanpa harga)
+            // History koreksi stok FOB (logika lama tetap: fokus ke qty)
             StockHistory::recordChange(
                 $fob_stock,
                 $beforeQty,
@@ -205,9 +220,11 @@ class FobStockController extends Controller
                 StockHistory::TYPE_FOB_UPDATE,
                 $reason,
                 auth()->id(),
+                $unitPrice,
+                $unitPrice !== null ? $unitPrice * $delta : null
             );
 
-            // Movement untuk delta koreksi
+            // Movement untuk delta koreksi (tanpa mengubah logika lama)
             if (abs($delta) > 0.0000001) {
                 StockMovement::create([
                     'stock_id'      => $fob_stock->id,
@@ -222,6 +239,15 @@ class FobStockController extends Controller
                     'po_number'     => null,
                     'moved_at'      => now(),
                 ]);
+            }
+
+            // Jika user isi harga baru, koreksi harga di history pembelian awal (TYPE_FOB_CREATE)
+            if ($unitPrice !== null) {
+                StockHistory::where('stock_id', $fob_stock->id)
+                    ->where('type', StockHistory::TYPE_FOB_CREATE)
+                    ->orderBy('id')
+                    ->limit(1)
+                    ->update(['unit_price' => $unitPrice]);
             }
         });
 

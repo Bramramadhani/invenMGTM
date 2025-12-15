@@ -5,6 +5,16 @@
 
   <h4 class="mb-3">Edit Stok FOB — {{ $stock->material_name }}</h4>
 
+  @php
+    if (!function_exists('qty_fmt')) {
+      function qty_fmt($n, $dec = 4) {
+        $s = number_format((float)$n, $dec, '.', '');
+        $s = rtrim(rtrim($s, '0'), '.');
+        return $s === '' ? '0' : $s;
+      }
+    }
+  @endphp
+
   @if ($errors->any())
     <div class="alert alert-danger">
       <ul class="mb-0">
@@ -66,7 +76,27 @@
             <label class="form-label">Qty <span class="text-danger">*</span></label>
             <input type="number" step="0.0001" min="0" name="quantity"
                    class="form-control text-end"
-                   value="{{ old('quantity', $stock->quantity) }}" required>
+                   value="{{ old('quantity', qty_fmt($stock->quantity)) }}" required>
+          </div>
+        </div>
+
+        <div class="row g-3 mt-3">
+          <div class="col-md-3">
+            <label class="form-label">Harga Satuan (Rp)</label>
+            <input
+              type="number"
+              name="unit_price"
+              min="0"
+              step="1"
+              class="form-control text-end @error('unit_price') is-invalid @enderror"
+              value="{{ old('unit_price', isset($initialUnitPrice) && $initialUnitPrice !== null ? qty_fmt($initialUnitPrice, 0) : '') }}"
+              placeholder="Contoh: 5000">
+            @error('unit_price')
+              <div class="invalid-feedback">{{ $message }}</div>
+            @enderror
+            <div class="form-text">
+              Opsional. Jika diisi, akan mengoreksi harga pembelian FOB awal.
+            </div>
           </div>
         </div>
 
@@ -76,8 +106,9 @@
         </div>
 
         <div class="alert alert-warning mt-3 small mb-0">
-          <strong>Catatan:</strong> Perubahan Qty akan tercatat di <em>StockMovement</em> dan
-          <em>StockHistory</em> sebagai koreksi FOB.
+          <strong>Catatan:</strong> Perubahan Qty & harga akan tercatat di
+          <em>StockMovement</em> dan <em>StockHistory</em> sebagai koreksi FOB.
+          Laporan pembelian FOB akan memakai harga awal yang sudah dikoreksi.
         </div>
 
         <div class="mt-4 d-flex justify-content-between">
