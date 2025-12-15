@@ -18,7 +18,7 @@
             <tr>
               <th style="width:80px;">#</th>
               <th style="min-width:140px;">No. PO</th>
-              <th>Supplier</th>
+              <th>Buyer</th>
               {{-- Kolom target selesai: center + nowrap supaya rapi --}}
               <th class="text-center" style="min-width:180px;">Target Selesai</th>
               <th class="text-center" style="width:120px;">Item</th>

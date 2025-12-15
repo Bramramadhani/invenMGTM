@@ -1,14 +1,14 @@
-@extends('layouts.master', ['title' => 'Supplier'])
+@extends('layouts.master', ['title' => 'Buyer'])
 
 @section('content')
     <x-container>
         <div class="col-12 col-lg-8">
-            <x-card title="DAFTAR SUPPLIER" class="card-body p-0">
+            <x-card title="DAFTAR BUYER" class="card-body p-0">
                 <x-table>
                     <thead>
                         <tr>
                             <th>#</th>
-                            <th>Nama Supplier</th>
+                            <th>Nama Buyer</th>
                             <th>No Hp</th>
                             <th>Alamat</th>
                             <th>Aksi</th>
@@ -29,11 +29,11 @@
                                             <form action="{{ route('admin.supplier.update', $supplier->id) }}" method="POST">
                                                 @csrf
                                                 @method('PUT')
-                                                <x-input name="name" type="text" title="Nama Supplier"
+                                                <x-input name="name" type="text" title="Nama Buyer"
                                                     placeholder="Nama Supplier" :value="$supplier->name" />
-                                                <x-input name="telp" type="text" title="Telp Supplier"
+                                                <x-input name="telp" type="text" title="Telp Buyer"
                                                     placeholder="Telp Supplier" :value="$supplier->telp" />
-                                                <x-input name="address" type="text" title="Alamat Supplier"
+                                                <x-input name="address" type="text" title="Alamat Buyer"
                                                     placeholder="Alamat Supplier" :value="$supplier->address" />
                                                 <x-button-save title="Simpan" icon="save" class="btn btn-primary" />
                                             </form>
@@ -52,14 +52,14 @@
         </div>
         @can('create-supplier')
             <div class="col-12 col-lg-4">
-                <x-card title="TAMBAH SUPPLIER" class="card-body">
+                <x-card title="TAMBAH BUYER" class="card-body">
                     <form action="{{ route('admin.supplier.store') }}" method="POST">
                         @csrf
-                        <x-input name="name" type="text" title="Nama Supplier" placeholder="Nama Supplier"
+                        <x-input name="name" type="text" title="Nama Buyer" placeholder="Nama Supplier"
                             :value="old('name')" />
-                        <x-input name="telp" type="text" title="Telp Supplier" placeholder="Telp Supplier"
+                        <x-input name="telp" type="text" title="Telp Buyer" placeholder="Telp Supplier"
                             :value="old('telp')" />
-                        <x-input name="address" type="text" title="Alamat Supplier" placeholder="Alamat Supplier"
+                        <x-input name="address" type="text" title="Alamat Buyer" placeholder="Alamat Supplier"
                             :value="old('address')" />
                         <x-button-save title="Simpan" icon="save" class="btn btn-primary" />
                     </form>

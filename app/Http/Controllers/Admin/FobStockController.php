@@ -33,7 +33,7 @@ class FobStockController extends Controller
             ->when($q !== '', function ($qq) use ($q) {
                 $qq->where(function ($w) use ($q) {
                     $w->where('material_name', 'like', "%{$q}%")
-                        ->orWhere('material_code', 'like', "%{$q}%");
+                      ->orWhere('material_code', 'like', "%{$q}%");
                 });
             })
             ->orderBy('material_name')
@@ -56,6 +56,7 @@ class FobStockController extends Controller
      * Simpan stok FOB baru (anggap sebagai PEMBELIAN FOB)
      *
      * - buyer_id    : wajib
+     * - vendor_name : opsional (toko/vendor tempat beli)
      * - quantity    : qty stok masuk
      * - unit_price  : harga satuan
      * - total harga : disimpan di stock_histories (unit_price * qty)
@@ -65,6 +66,7 @@ class FobStockController extends Controller
         $validatedData = $request->validate(
             [
                 'buyer_id'      => ['required', 'exists:buyers,id'],
+                'vendor_name'   => ['nullable', 'string', 'max:191'],
                 'material_code' => ['nullable', 'string', 'max:50'],
                 'material_name' => ['required', 'string', 'max:255'],
                 'unit'          => ['required', 'string', 'max:20'],
@@ -75,6 +77,7 @@ class FobStockController extends Controller
             [],
             [
                 'buyer_id'      => 'Buyer',
+                'vendor_name'   => 'Vendor / Toko',
                 'material_name' => 'Nama Material',
                 'unit'          => 'Unit',
                 'quantity'      => 'Qty',
@@ -97,6 +100,7 @@ class FobStockController extends Controller
                 'material_name'     => $validatedData['material_name'],
                 'unit'              => $validatedData['unit'],
                 'quantity'          => $qty,
+                'vendor_name'       => $validatedData['vendor_name'] ?? null,
             ]);
 
             // 2. Catat history dengan harga (ini yang akan dipakai laporan pembelian)
@@ -160,6 +164,7 @@ class FobStockController extends Controller
         $validatedData = $request->validate(
             [
                 'buyer_id'      => ['required', 'exists:buyers,id'],
+                'vendor_name'   => ['nullable', 'string', 'max:191'],
                 'material_code' => ['nullable', 'string', 'max:50'],
                 'material_name' => ['required', 'string', 'max:255'],
                 'unit'          => ['required', 'string', 'max:20'],
@@ -169,6 +174,7 @@ class FobStockController extends Controller
             [],
             [
                 'buyer_id'      => 'Buyer',
+                'vendor_name'   => 'Vendor / Toko',
                 'material_name' => 'Nama Material',
                 'unit'          => 'Unit',
                 'quantity'      => 'Qty',
@@ -184,6 +190,7 @@ class FobStockController extends Controller
             // Update data stok
             $fob_stock->update([
                 'buyer_id'      => $validatedData['buyer_id'],
+                'vendor_name'   => $validatedData['vendor_name'] ?? null,
                 'material_code' => $validatedData['material_code'] ?? null,
                 'material_name' => $validatedData['material_name'],
                 'unit'          => $validatedData['unit'],

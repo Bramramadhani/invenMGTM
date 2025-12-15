@@ -96,7 +96,7 @@ class BuyerController extends Controller
 
         return redirect()
             ->route('admin.buyers.index')
-            ->with('success', 'Buyer FOB berhasil diperbarui.');
+            ->with('success', 'FOB berhasil diperbarui.');
     }
 
     /**
@@ -105,13 +105,13 @@ class BuyerController extends Controller
     public function destroy(Buyer $buyer)
     {
         if ($buyer->stocks()->exists()) {
-            return back()->with('warning', 'Buyer masih memiliki stok FOB, tidak bisa dihapus.');
+            return back()->with('warning', 'FOB masih memiliki stok, tidak bisa dihapus.');
         }
 
         $buyer->delete();
 
         return redirect()
             ->route('admin.buyers.index')
-            ->with('success', 'Buyer FOB berhasil dihapus.');
+            ->with('success', 'FOB berhasil dihapus.');
     }
 }

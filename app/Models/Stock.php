@@ -15,6 +15,7 @@ class Stock extends Model
         'material_code',
         'unit',
         'quantity',
+        'vendor_name',
         // NOTE: kolom legacy dihapus dari fillable agar tidak terisi lagi secara tidak sengaja
         // 'last_po_id',
         // 'last_po_number',

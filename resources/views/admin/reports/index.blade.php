@@ -98,7 +98,7 @@
             <option value="">— Semua Supplier —</option>
 
             @if($suppliers->take(10)->count() > 0)
-              <optgroup label="Supplier Utama">
+              <optgroup label="Buyer Utama">
                 @foreach ($suppliers->take(10) as $s)
                   <option value="{{ $s->id }}" {{ (string)$supplierId===(string)$s->id ? 'selected' : '' }}>
                     {{ $s->name }}

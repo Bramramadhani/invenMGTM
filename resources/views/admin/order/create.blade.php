@@ -23,18 +23,18 @@
             $oldSourceType = old('source_type', 'po');
           @endphp
           <select name="source_type" id="sourceType" class="form-select form-select-sm" style="width:auto;">
-            <option value="po"  {{ $oldSourceType === 'po'  ? 'selected' : '' }}>Stok PO / Supplier</option>
-            <option value="fob" {{ $oldSourceType === 'fob' ? 'selected' : '' }}>Stok FOB (Buyer)</option>
+            <option value="po"  {{ $oldSourceType === 'po'  ? 'selected' : '' }}>Stok PO / Buyer</option>
+            <option value="fob" {{ $oldSourceType === 'fob' ? 'selected' : '' }}>Stok FOB </option>
           </select>
         </div>
       </div>
       <div class="card-body">
         <div class="row g-3">
           <div class="col-md-4">
-            <label class="form-label">Supplier <span class="text-danger">*</span></label>
+            <label class="form-label">Buyer <span class="text-danger">*</span></label>
             {{-- hanya untuk AJAX, tidak dikirim ke server --}}
             <select id="supplierSelect" class="form-select" required>
-              <option value="">— Pilih Supplier —</option>
+              <option value="">— Pilih Buyer —</option>
               @foreach ($suppliers as $s)
                 <option value="{{ $s->id }}">{{ $s->name }}</option>
               @endforeach
@@ -150,7 +150,7 @@
                 <th style="width:160px">Kode</th>
                 <th>Material</th>
                 <th style="width:100px">Unit</th>
-                <th>Supplier / Buyer</th>
+                <th>Buyer / FOB</th>
                 <th style="width:160px">No. PO (Stok)</th>
                 <th style="width:160px" class="text-end">Tersedia</th>
                 <th style="width:180px" class="text-end">Qty Diminta</th>

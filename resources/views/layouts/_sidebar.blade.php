@@ -55,7 +55,7 @@
                             </svg>
                             </span>
                             <span class="nav-link-title">
-                                    Supplier
+                                    Buyer
                             </span>
                         </a>
                     </li>
@@ -101,7 +101,7 @@
                                 </svg>
                             </span>
                             <span class="nav-link-title">
-                                Buyer (FOB)
+                                FOB
                             </span>
                         </a>
                     </li>

@@ -24,7 +24,7 @@
 
     {{-- Widgets --}}
     <div class="col-sm-6 col-xl-3">
-        <x-widget title="Supplier" :subTitle="$suppliers" class="bg-primary">
+        <x-widget title="Buyer" :subTitle="$suppliers" class="bg-primary">
             <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-truck" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/><path d="M5 17h-2v-11a1 1 0 0 1 1 -1h9v12m-4 0h6m4 0h2v-6h-8m0 -5h5l3 5"/></svg>
         </x-widget>
     </div>
@@ -66,9 +66,9 @@
                 @endforeach
                 <div class="row g-2 align-items-end">
                     <div class="col-12 col-md-6">
-                        <label class="form-label mb-1 small d-block text-center">Supplier</label>
+                        <label class="form-label mb-1 small d-block text-center">Buyer</label>
                         <select name="po_supplier_id" class="form-select" onchange="this.form.submit()" aria-label="Filter Supplier">
-                            <option value="">— Semua Supplier —</option>
+                            <option value="">— Semua Buyer —</option>
                             @foreach($poSuppliers as $s)
                                 <option value="{{ $s->id }}" {{ (int)$poSupplierId === (int)$s->id ? 'selected' : '' }}>
                                     {{ $s->name }}
@@ -98,7 +98,7 @@
                         <thead class="table-light">
                         <tr>
                             <th>PO No</th>
-                            <th>Supplier</th>
+                            <th>Buyer</th>
                             <th class="text-end">Qty PO</th>
                             <th class="text-end">Qty IN</th>
                             <th class="text-center">% Diterima</th>
@@ -168,7 +168,7 @@
                       <th>Material</th>
                       <th class="text-end" style="width:110px">Qty</th>
                       <th style="width:90px">Unit</th>
-                      <th>Supplier</th>
+                      <th>Buyer</th>
                       <th style="width:140px">NO PO</th>
                       <th style="width:180px">Catatan</th>
                     </tr>

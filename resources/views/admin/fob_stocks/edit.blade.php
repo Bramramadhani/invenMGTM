@@ -34,6 +34,18 @@
           </select>
         </div>
 
+        <div class="mb-3">
+          <label class="form-label">Vendor / Toko</label>
+          <input type="text"
+                 name="vendor_name"
+                 class="form-control @error('vendor_name') is-invalid @enderror"
+                 value="{{ old('vendor_name', $stock->vendor_name) }}"
+                 placeholder="Contoh: Toko Bahan A / Vendor X">
+          @error('vendor_name')
+            <div class="invalid-feedback">{{ $message }}</div>
+          @enderror
+        </div>
+
         <div class="row g-3">
           <div class="col-md-3">
             <label class="form-label">Kode Material</label>

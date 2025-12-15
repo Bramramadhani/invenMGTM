@@ -21,7 +21,7 @@
     <div>
       <h4 class="mb-1">Detail Purchase Order — {{ $purchaseOrder->po_number }}</h4>
       <div class="small text-muted">
-        Supplier: <strong>{{ optional($purchaseOrder->supplier)->name ?? '-' }}</strong>
+        Buyer: <strong>{{ optional($purchaseOrder->supplier)->name ?? '-' }}</strong>
       </div>
     </div>
 
@@ -59,7 +59,7 @@
         <div class="card-body">
           <div class="row g-3">
             <div class="col-md-6">
-              <div class="text-muted small mb-1">Supplier</div>
+              <div class="text-muted small mb-1">Buyer</div>
               <div class="fw-semibold">{{ optional($purchaseOrder->supplier)->name ?? '-' }}</div>
             </div>
             <div class="col-md-6">

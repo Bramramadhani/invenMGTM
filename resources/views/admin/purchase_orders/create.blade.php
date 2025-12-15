@@ -3,19 +3,7 @@
 @section('content')
 <div class="container">
 
-  {{-- ALERT ERROR --}}
-  @if ($errors->any())
-    <div class="alert alert-danger alert-dismissible fade show mb-4">
-      <strong>Terjadi kesalahan.</strong> Periksa kembali isian Anda.
-      <ul class="mb-0 mt-2">
-        @foreach ($errors->all() as $error)
-          <li>{{ $error }}</li>
-        @endforeach
-      </ul>
-      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    </div>
-  @endif
-
+ 
   <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
     <div>
       <h4 class="mb-1">Buat Purchase Order</h4>
@@ -50,7 +38,7 @@
           <div class="col-md-4">
             <label class="form-label">Supplier <span class="text-danger">*</span></label>
             <select class="form-select" name="supplier_id" required>
-              <option value="">-- pilih supplier --</option>
+              <option value="">-- pilih Buyer --</option>
               @foreach($suppliers as $s)
                 <option value="{{ $s->id }}" @selected(old('supplier_id')==$s->id)>{{ $s->name }}</option>
               @endforeach

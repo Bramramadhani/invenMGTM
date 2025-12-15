@@ -68,9 +68,9 @@
     {{-- HEADER PO --}}
     <div class="row g-3">
       <div class="col-md-4">
-        <label class="form-label">Supplier</label>
+        <label class="form-label">Buyer</label>
         <select name="supplier_id" class="form-select" required>
-          <option value="">— Pilih Supplier —</option>
+          <option value="">— Pilih Buyer —</option>
           @foreach ($suppliers as $sup)
             <option value="{{ $sup->id }}" {{ old('supplier_id', $purchaseOrder->supplier_id) == $sup->id ? 'selected' : '' }}>
               {{ $sup->name }}

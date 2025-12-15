@@ -64,7 +64,7 @@
           <thead class="table-light">
             <tr>
               <th style="width:50px;" class="text-center">No</th>
-              <th style="width:160px;">Buyer</th>
+              <th style="width:200px;">Buyer FOB</th>
               <th style="width:110px;">Kode</th>
               <th>Material</th>
               <th style="width:80px;" class="text-center">Unit</th>
@@ -83,7 +83,11 @@
                       <div class="small text-muted">{{ $s->buyer->code }}</div>
                     @endif
                   @else
-                    <span class="text-muted">—</span>
+                    <div class="text-muted">—</div>
+                  @endif
+
+                  @if($s->vendor_name)
+                    <div class="small text-muted">Vendor: {{ $s->vendor_name }}</div>
                   @endif
                 </td>
                 <td>{{ $s->material_code ?: '—' }}</td>

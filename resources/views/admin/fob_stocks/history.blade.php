@@ -34,8 +34,11 @@
         <div class="card-header bg-light"><strong>Info Stok</strong></div>
         <div class="card-body">
           <dl class="row mb-0">
-            <dt class="col-4">Buyer</dt>
+            <dt class="col-4">FOB</dt>
             <dd class="col-8">{{ optional($stock->buyer)->name ?? '—' }}</dd>
+
+            <dt class="col-4">Vendor / Toko</dt>
+            <dd class="col-8">{{ $stock->vendor_name ?? '—' }}</dd>
 
             <dt class="col-4">Kode Material</dt>
             <dd class="col-8">{{ $stock->material_code ?? '—' }}</dd>

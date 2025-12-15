@@ -13,8 +13,7 @@ use Maatwebsite\Excel\Concerns\WithTitle;
 use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Events\AfterSheet;
 use PhpOffice\PhpSpreadsheet\Style\Border;
-use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
-use PhpOffice\PhpSpreadsheet\Style\Fill;          
+use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 class FobPurchaseReportExport implements
@@ -37,20 +36,18 @@ class FobPurchaseReportExport implements
     }
 
     /**
-     * Data yang akan di-export ke Excel.
-     * Sekaligus kita bentuk:
-     *  - Row 1 : Judul
-     *  - Row 2 : Periode
-     *  - Row 3 : Kosong
-     *  - Row 4 : Header kolom
-     *  - Row 5..N : Data
-     *  - Row N+1 : Total Pembelian
+     * Row:
+     *  1 : Judul
+     *  2 : Periode
+     *  3 : Kosong
+     *  4 : Header kolom
+     *  5..N : Data
+     *  N+1 : (opsional) Total pembelian
      */
     public function collection(): Collection
     {
         // ==== Hitung range & label periode ====
         if ($this->rangeType === 'month') {
-            // Per bulan
             try {
                 $monthCarbon = $this->month
                     ? Carbon::createFromFormat('Y-m', $this->month)
@@ -59,11 +56,10 @@ class FobPurchaseReportExport implements
                 $monthCarbon = Carbon::today();
             }
 
-            $start        = $monthCarbon->copy()->startOfMonth();
-            $end          = $monthCarbon->copy()->endOfMonth();
-            $periodLabel  = 'Bulan ' . $monthCarbon->format('m-Y');
+            $start       = $monthCarbon->copy()->startOfMonth();
+            $end         = $monthCarbon->copy()->endOfMonth();
+            $periodLabel = 'Bulan ' . $monthCarbon->format('m-Y');
         } else {
-            // Per tanggal
             try {
                 $dateCarbon = $this->date
                     ? Carbon::parse($this->date)
@@ -89,29 +85,33 @@ class FobPurchaseReportExport implements
         $rows       = [];
         $grandTotal = 0;
 
-        // ==== Row 1–3: judul & periode ====
-        $rows[] = ['LAPORAN PEMBELIAN STOK FOB'];  // Row 1 (A1)
-        $rows[] = ['Periode: ' . $periodLabel];    // Row 2 (A2)
-        $rows[] = [];                              // Row 3 kosong
+        // ==== Row 1-3: judul & periode ====
+        $rows[] = ['LAPORAN PEMBELIAN STOK FOB'];       // A1
+        $rows[] = ['Periode: ' . $periodLabel];         // A2
+        $rows[] = [];                                   // A3 kosong
 
         // ==== Row 4: header kolom ====
         $rows[] = [
-            'No',
-            'Tanggal',
-            'Buyer',
-            'Kode',
-            'Material',
-            'Unit',
-            'Qty',
-            'Harga Satuan',
-            'Total',
-            'Catatan',
+            'No',             // A
+            'Tanggal',        // B
+            'Buyer FOB',      // C
+            'Vendor / Toko',  // D
+            'Kode',           // E
+            'Material',       // F
+            'Unit',           // G
+            'Qty',            // H
+            'Harga Satuan',   // I
+            'Total',          // J
+            'Catatan',        // K
         ];
 
-        // ==== Data row ====
-        foreach ($histories as $index => $row) {
-            $stock = $row->stock;
-            $buyer = optional(optional($stock)->buyer)->name;
+        // ==== Data ====
+        $no = 1;
+
+        foreach ($histories as $row) {
+            $stock  = $row->stock;
+            $buyer  = optional(optional($stock)->buyer)->name;
+            $vendor = $stock->vendor_name ?? null;
 
             $qty   = (float) $row->diff_quantity;
             $price = (float) ($row->unit_price ?? 0);
@@ -120,11 +120,12 @@ class FobPurchaseReportExport implements
             $grandTotal += $total;
 
             $rows[] = [
-                $index + 1,
+                $no++,
                 optional($row->created_at)->format('d-m-Y'),
                 $buyer ?: '—',
-                $stock->material_code ?? '—',
-                $stock->material_name ?? '—',
+                $vendor ?: '—',
+                $stock->material_code ?: '—',
+                $stock->material_name ?: '—',
                 $stock->unit ?? '',
                 $qty,
                 $price,
@@ -134,8 +135,8 @@ class FobPurchaseReportExport implements
         }
 
         // ==== Row total ====
-        if (!empty($histories)) {
-            $rows[] = []; // 1 baris kosong sebelum total
+        if ($histories->isNotEmpty()) {
+            $rows[] = []; // baris kosong sebelum total
 
             $rows[] = [
                 null,
@@ -143,10 +144,11 @@ class FobPurchaseReportExport implements
                 null,
                 null,
                 null,
-                'TOTAL PEMBELIAN',
+                null,
+                'TOTAL PEMBELIAN', // G
                 null,
                 null,
-                $grandTotal,
+                $grandTotal,        // J
                 null,
             ];
         }
@@ -159,22 +161,22 @@ class FobPurchaseReportExport implements
      */
     public function columnFormats(): array
     {
+        // Pakai #,##0 supaya tampil 50.000 (tanpa desimal)
         return [
-            // G = Qty, H = Harga Satuan, I = Total
-            'G' => NumberFormat::FORMAT_NUMBER,       // Qty tanpa desimal “aneh”
-            'H' => '#,##0',                           // Harga: ribuan
-            'I' => '#,##0',                           // Total: ribuan
+            'H' => '#,##0',  // Qty
+            'I' => '#,##0',  // Harga Satuan
+            'J' => '#,##0',  // Total
         ];
     }
 
     /**
-     * Styling sheet (judul, header, border, dll)
+     * Styling sheet (judul, header, border, alignment, dll)
      */
     public function styles(Worksheet $sheet)
     {
-        // Merge judul & periode
-        $sheet->mergeCells('A1:J1');
-        $sheet->mergeCells('A2:J2');
+        // Merge judul & periode (A..K = 11 kolom)
+        $sheet->mergeCells('A1:K1');
+        $sheet->mergeCells('A2:K2');
 
         // Judul
         $sheet->getStyle('A1')->getFont()
@@ -188,37 +190,75 @@ class FobPurchaseReportExport implements
             ->setHorizontal('center');
 
         // Header (row 4)
-        $sheet->getStyle('A4:J4')->getFont()->setBold(true);
-        $sheet->getStyle('A4:J4')->getAlignment()
+        $sheet->getStyle('A4:K4')->getFont()->setBold(true);
+        $sheet->getStyle('A4:K4')->getAlignment()
             ->setHorizontal('center');
-        $sheet->getStyle('A4:J4')->getBorders()->getAllBorders()
+        $sheet->getStyle('A4:K4')->getBorders()->getAllBorders()
             ->setBorderStyle(Border::BORDER_THIN);
 
-        // === Warna kuning untuk judul + periode + header ===
-        $yellow = 'FFFFFF00'; // ARGB kuning terang
+        // Warna kuning untuk judul + header
+        $yellow = 'FFFFFF00';
 
-        $sheet->getStyle('A1:J2')->getFill()
+        $sheet->getStyle('A1:K2')->getFill()
             ->setFillType(Fill::FILL_SOLID)
             ->getStartColor()->setARGB($yellow);
 
-        $sheet->getStyle('A4:J4')->getFill()
+        $sheet->getStyle('A4:K4')->getFill()
             ->setFillType(Fill::FILL_SOLID)
             ->getStartColor()->setARGB($yellow);
 
         // Border semua data + total
         $highestRow = $sheet->getHighestRow();
         if ($highestRow >= 4) {
-            $sheet->getStyle("A4:J{$highestRow}")
+            $sheet->getStyle("A4:K{$highestRow}")
                 ->getBorders()
                 ->getAllBorders()
                 ->setBorderStyle(Border::BORDER_THIN);
         }
 
+        // Alignment per kolom data (mulai baris 5)
+        if ($highestRow >= 5) {
+            $dataStart = 5;
+            $dataEnd   = $highestRow;
+
+            // No, Tanggal, Unit center
+            $sheet->getStyle("A{$dataStart}:A{$dataEnd}")
+                ->getAlignment()->setHorizontal('center');
+            $sheet->getStyle("B{$dataStart}:B{$dataEnd}")
+                ->getAlignment()->setHorizontal('center');
+            $sheet->getStyle("G{$dataStart}:G{$dataEnd}")
+                ->getAlignment()->setHorizontal('center');
+
+            // Qty, Harga, Total right
+            $sheet->getStyle("H{$dataStart}:H{$dataEnd}")
+                ->getAlignment()->setHorizontal('right');
+            $sheet->getStyle("I{$dataStart}:I{$dataEnd}")
+                ->getAlignment()->setHorizontal('right');
+            $sheet->getStyle("J{$dataStart}:J{$dataEnd}")
+                ->getAlignment()->setHorizontal('right');
+
+            // Text kolom lain left (C, D, E, F, K)
+            $sheet->getStyle("C{$dataStart}:F{$dataEnd}")
+                ->getAlignment()->setHorizontal('left');
+            $sheet->getStyle("K{$dataStart}:K{$dataEnd}")
+                ->getAlignment()->setHorizontal('left');
+        }
+
         // Total row (baris terakhir, kalau ada data)
         if ($highestRow > 5) {
-            $sheet->getStyle("A{$highestRow}:J{$highestRow}")
+            $sheet->getStyle("A{$highestRow}:K{$highestRow}")
                 ->getFont()
                 ->setBold(true);
+
+            // Warna abu-abu muda untuk baris total
+            $sheet->getStyle("A{$highestRow}:K{$highestRow}")
+                ->getFill()
+                ->setFillType(Fill::FILL_SOLID)
+                ->getStartColor()->setARGB('FFF0F0F0');
+
+            // Pastikan nilai total (kolom J) rata kanan
+            $sheet->getStyle("J{$highestRow}")
+                ->getAlignment()->setHorizontal('right');
         }
 
         return [];
@@ -233,24 +273,23 @@ class FobPurchaseReportExport implements
     }
 
     /**
-     * Event tambahan: auto filter, freeze header
+     * Event tambahan: freeze header, lebar kolom catatan
      */
     public function registerEvents(): array
     {
         return [
             AfterSheet::class => function (AfterSheet $event) {
-                $sheet      = $event->sheet->getDelegate();
-                $highestRow = $sheet->getHighestRow();
+                $sheet = $event->sheet->getDelegate();
 
-                // Auto filter di header (row 4)
-                $sheet->setAutoFilter("A4:J4");
+                // Tidak ada AutoFilter sama sekali.
+                // Kalau di file Excel masih terlihat ikon filter di "No",
+                // itu dari Excel (misal file lama, atau user aktifkan manual).
 
                 // Freeze header (judul & header tetap saat scroll)
-                // Freeze di A5 → baris 1–4 tetap
-                $sheet->freezePane('A5');
+                $sheet->freezePane('A5'); // baris 1-4 tetap
 
-                // Sedikit padding kolom Catatan
-                $sheet->getColumnDimension('J')->setWidth(40);
+                // Kolom catatan lebih lebar
+                $sheet->getColumnDimension('K')->setWidth(40);
             },
         ];
     }

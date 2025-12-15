@@ -69,6 +69,19 @@
         </div>
 
         <div class="row g-3 mt-3">
+          <div class="col-md-4">
+            <label class="form-label">Vendor / Toko</label>
+            <input type="text" name="vendor_name"
+                   value="{{ old('vendor_name') }}"
+                   class="form-control @error('vendor_name') is-invalid @enderror"
+                   placeholder="Contoh: Toko Bahan A / Vendor X">
+            @error('vendor_name')
+              <div class="invalid-feedback">{{ $message }}</div>
+            @enderror
+          </div>
+        </div>
+
+        <div class="row g-3 mt-3">
           <div class="col-md-2">
             <label class="form-label">Unit <span class="text-danger">*</span></label>
             <input type="text" name="unit"
@@ -128,7 +141,7 @@
             <label class="form-label">Catatan (opsional)</label>
             <textarea name="reason" rows="2"
                       class="form-control @error('reason') is-invalid @enderror"
-                      placeholder="Misal: Pembelian harian FOB Buyer A dari Supplier X">{{ old('reason') }}</textarea>
+                      placeholder="Misal: Pembelian harian FOB Buyer A dari Vendor X">{{ old('reason') }}</textarea>
             @error('reason')
               <div class="invalid-feedback">{{ $message }}</div>
             @enderror

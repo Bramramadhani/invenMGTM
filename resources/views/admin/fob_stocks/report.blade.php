@@ -95,6 +95,7 @@
               <tr>
                 <th style="width:120px">TANGGAL</th>
                 <th>BUYER</th>
+                <th>VENDOR / TOKO</th>
                 <th style="width:120px">KODE</th>
                 <th>MATERIAL</th>
                 <th style="width:80px">UNIT</th>
@@ -110,6 +111,7 @@
                 @php
                   $stock      = $row->stock;
                   $buyer      = optional(optional($stock)->buyer)->name;
+                  $vendor     = $stock->vendor_name ?? null;
                   $qty        = (float) $row->diff_quantity;
                   $price      = (float) ($row->unit_price ?? 0);
                   $lineTotal  = $qty * $price;
@@ -120,6 +122,7 @@
                   {{-- hanya tanggal, tanpa jam --}}
                   <td>{{ optional($row->created_at)->format('d-m-Y') }}</td>
                   <td>{{ $buyer ?: '—' }}</td>
+                  <td>{{ $vendor ?: '—' }}</td>
                   <td>{{ $code ?: '—' }}</td>
                   <td>{{ $stock->material_name ?? '—' }}</td>
                   <td>{{ $stock->unit ?? '' }}</td>
@@ -133,7 +136,7 @@
             </tbody>
             <tfoot>
               <tr class="table-light">
-                <th colspan="7" class="text-end">TOTAL PEMBELIAN</th>
+                <th colspan="8" class="text-end">TOTAL PEMBELIAN</th>
                 <th class="text-end">
                   Rp {{ number_format($grandTotal, 0, ',', '.') }}
                 </th>

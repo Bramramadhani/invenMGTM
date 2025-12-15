@@ -53,7 +53,7 @@
             name="q"
             class="form-control"
             value="{{ $term }}"
-            placeholder="Ketik kode / material / unit / supplier / NO PO"
+            placeholder="Ketik kode / material / unit / Buyer / NO PO"
             autocomplete="off"
           >
         </div>
@@ -62,7 +62,7 @@
       <div class="col-md-3">
         <label class="form-label">Tampilan</label>
         <select name="group" class="form-select">
-          <option value="supplier-po" @selected($group==='supplier-po')>Per Supplier</option>
+          <option value="supplier-po" @selected($group==='supplier-po')>Per Buyer</option>
           <option value="flat"        @selected($group==='flat')>Tabel</option>
         </select>
       </div>
@@ -98,7 +98,7 @@
     @forelse($grouped as $supplierName => $byPo)
       <div class="card mb-4">
         <div class="card-header">
-          <strong>Supplier</strong>&nbsp;:&nbsp;<span>{{ $supplierName }}</span>
+          <strong>Buyer</strong>&nbsp;:&nbsp;<span>{{ $supplierName }}</span>
         </div>
 
         <div class="card-body">
@@ -193,7 +193,7 @@
                 <th style="width:180px">Kode</th>
                 <th>Material</th>
                 <th style="width:120px">Unit</th>
-                <th>Supplier</th>
+                <th>Buyer</th>
                 <th class="text-end" style="width:180px">Quantity</th>
                 <th style="width:160px">NO PO</th>
               </tr>
