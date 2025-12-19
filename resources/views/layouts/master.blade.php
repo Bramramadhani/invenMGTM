@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta http-equiv="X-UA-Compatible" content="ie=edge" />
-  <title>{{ $title }} - {{ config('app.name', 'Laravel') }}</title>
+  <title>{{ $title }} - MMI</title>
 
   {{-- ====== META TAG TAMBAHAN (dipertahankan karena sistem internal) ====== --}}
   <link rel="preconnect" href="https://fonts.gstatic.com/" crossorigin>
@@ -19,8 +19,9 @@
   <meta name="robots" content="noindex,nofollow,noarchive" />
 
   {{-- ====== FAVICON ====== --}}
-  <link rel="icon" href="{{ asset('icon.png') }}" type="image/x-icon" />
-  <link rel="shortcut icon" href="{{ asset('icon.png') }}" type="image/x-icon" />
+  @php($favicon = asset('icon.png') . '?v=' . @filemtime(public_path('icon.png')))
+  <link rel="icon" href="{{ $favicon }}" type="image/png" />
+  <link rel="shortcut icon" href="{{ $favicon }}" type="image/png" />
 
   {{-- ====== FONT AWESOME ====== --}}
   <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.2/css/all.css"
