@@ -16,6 +16,9 @@
     }
 
     $hasPostedReceipts = $purchaseOrder->hasPostedReceipt();
+    $isFullFob = method_exists($purchaseOrder, 'isFullFob')
+      ? $purchaseOrder->isFullFob()
+      : (($purchaseOrder->stock_source ?? 'po') === 'fob_full');
 
     // Siapkan rows awal item (old() jika gagal validasi, fallback dari relasi items)
     $oldItems = old('items');
@@ -48,6 +51,13 @@
         ];
     }
   @endphp
+
+  @if($isFullFob)
+    <div class="alert alert-info">
+      PO ini adalah <strong>FULL FOB</strong>.<br>
+      Tidak menggunakan penerimaan/receipt dan tidak membutuhkan item material di PO. Fokus input: <strong>No PO + Styles</strong>.
+    </div>
+  @endif
 
   @if($hasPostedReceipts)
     <div class="alert alert-warning">
@@ -85,13 +95,7 @@
                value="{{ old('po_number', $purchaseOrder->po_number) }}" maxlength="100" required>
       </div>
 
-      <div class="col-md-2">
-        <label class="form-label">Kedatangan</label>
-        <input type="date" name="arrival_date" class="form-control"
-               value="{{ old('arrival_date', optional($purchaseOrder->arrival_date)->toDateString()) }}">
-      </div>
-
-      <div class="col-md-2">
+      <div class="col-md-4">
         <label class="form-label">Target Selesai</label>
         <input type="date" name="target_completion_date" class="form-control"
                value="{{ old('target_completion_date', optional($purchaseOrder->target_completion_date)->toDateString()) }}">
@@ -108,95 +112,97 @@
     <hr class="my-4">
 
     {{-- ITEM PO (MATERIAL) --}}
-    <div class="d-flex align-items-center justify-content-between mb-2">
-      <h5 class="mb-0">Item PO</h5>
-      <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddRow">
-        <i class="fas fa-plus"></i> Tambah Baris
-      </button>
-    </div>
+    @if(!$isFullFob)
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <h5 class="mb-0">Item PO</h5>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddRow">
+          <i class="fas fa-plus"></i> Tambah Baris
+        </button>
+      </div>
 
-    <div class="table-responsive">
-      <table class="table table-bordered align-middle" id="itemsTable">
-        <thead class="table-light">
-          <tr>
-            <th style="width: 30%">Material</th>
-            <th style="width: 18%">Kode Barang</th>
-            <th style="width: 15%">Unit</th>
-            <th class="text-end" style="width: 20%">Qty Dipesan</th>
-            <th style="width: 10%">Aksi</th>
-          </tr>
-        </thead>
-        <tbody>
-          @forelse($rows as $idx => $row)
+      <div class="table-responsive">
+        <table class="table table-bordered align-middle" id="itemsTable">
+          <thead class="table-light">
             <tr>
-              {{-- hidden ID untuk item lama (jika ada) --}}
-              <input type="hidden"
-                     name="items[{{ $idx }}][id]"
-                     value="{{ old("items.$idx.id", $row['id'] ?? '') }}">
+              <th style="width: 30%">Material</th>
+              <th style="width: 18%">Kode Barang</th>
+              <th style="width: 15%">Unit</th>
+              <th class="text-end" style="width: 20%">Qty Dipesan</th>
+              <th style="width: 10%">Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            @forelse($rows as $idx => $row)
+              <tr>
+                {{-- hidden ID untuk item lama (jika ada) --}}
+                <input type="hidden"
+                       name="items[{{ $idx }}][id]"
+                       value="{{ old("items.$idx.id", $row['id'] ?? '') }}">
 
-              <td>
-                <input type="text" class="form-control"
-                       name="items[{{ $idx }}][material_name]"
-                       value="{{ old("items.$idx.material_name", $row['material_name'] ?? '') }}"
-                       placeholder="Nama material" required>
-              </td>
-              <td>
-                <input type="text" class="form-control item-material-code"
-                       name="items[{{ $idx }}][material_code]"
-                       value="{{ old("items.$idx.material_code", $row['material_code'] ?? '') }}"
-                       placeholder="Contoh: LB-001">
-              </td>
-              <td>
-                <input type="text" class="form-control"
-                       name="items[{{ $idx }}][unit]"
-                       value="{{ old("items.$idx.unit", $row['unit'] ?? '') }}"
-                       placeholder="pcs/kg/roll/..." required>
-              </td>
-              <td>
-                <input type="number" step="0.0001" min="0.0001"
-                       class="form-control text-end"
-                       name="items[{{ $idx }}][ordered_quantity]"
-                       value="{{ old("items.$idx.ordered_quantity", qty_fmt($row['ordered_quantity'] ?? '')) }}"
-                       placeholder="0" required>
-              </td>
-              <td class="text-center">
-                <button type="button" class="btn btn-sm btn-outline-danger btnRemoveRow">
-                  <i class="fas fa-times"></i>
-                </button>
-              </td>
-            </tr>
-          @empty
-            <tr>
-              <td>
-                <input type="text" class="form-control"
-                       name="items[0][material_name]"
-                       placeholder="Nama material" required>
-              </td>
-              <td>
-                <input type="text" class="form-control item-material-code"
-                       name="items[0][material_code]"
-                       placeholder="Contoh: LB-001">
-              </td>
-              <td>
-                <input type="text" class="form-control"
-                       name="items[0][unit]"
-                       placeholder="pcs/kg/roll/..." required>
-              </td>
-              <td>
-                <input type="number" step="0.0001" min="0.0001"
-                       class="form-control text-end"
-                       name="items[0][ordered_quantity]" placeholder="0" required>
-              </td>
-              <td class="text-center">
-                <button type="button" class="btn btn-sm btn-outline-danger btnRemoveRow">
-                  <i class="fas fa-times"></i>
-                </button>
-              </td>
-            </tr>
-          @endforelse
-        </tbody>
-      </table>
-    </div>
+                <td>
+                  <input type="text" class="form-control"
+                         name="items[{{ $idx }}][material_name]"
+                         value="{{ old("items.$idx.material_name", $row['material_name'] ?? '') }}"
+                         placeholder="Nama material" required>
+                </td>
+                <td>
+                  <input type="text" class="form-control item-material-code"
+                         name="items[{{ $idx }}][material_code]"
+                         value="{{ old("items.$idx.material_code", $row['material_code'] ?? '') }}"
+                         placeholder="Contoh: LB-001">
+                </td>
+                <td>
+                  <input type="text" class="form-control"
+                         name="items[{{ $idx }}][unit]"
+                         value="{{ old("items.$idx.unit", $row['unit'] ?? '') }}"
+                         placeholder="pcs/kg/roll/..." required>
+                </td>
+                <td>
+                  <input type="number" step="0.0001" min="0.0001"
+                         class="form-control text-end"
+                         name="items[{{ $idx }}][ordered_quantity]"
+                         value="{{ old("items.$idx.ordered_quantity", qty_fmt($row['ordered_quantity'] ?? '')) }}"
+                         placeholder="0" required>
+                </td>
+                <td class="text-center">
+                  <button type="button" class="btn btn-sm btn-outline-danger btnRemoveRow">
+                    <i class="fas fa-times"></i>
+                  </button>
+                </td>
+              </tr>
+            @empty
+              <tr>
+                <td>
+                  <input type="text" class="form-control"
+                         name="items[0][material_name]"
+                         placeholder="Nama material" required>
+                </td>
+                <td>
+                  <input type="text" class="form-control item-material-code"
+                         name="items[0][material_code]"
+                         placeholder="Contoh: LB-001">
+                </td>
+                <td>
+                  <input type="text" class="form-control"
+                         name="items[0][unit]"
+                         placeholder="pcs/kg/roll/..." required>
+                </td>
+                <td>
+                  <input type="number" step="0.0001" min="0.0001"
+                         class="form-control text-end"
+                         name="items[0][ordered_quantity]" placeholder="0" required>
+                </td>
+                <td class="text-center">
+                  <button type="button" class="btn btn-sm btn-outline-danger btnRemoveRow">
+                    <i class="fas fa-times"></i>
+                  </button>
+                </td>
+              </tr>
+            @endforelse
+          </tbody>
+        </table>
+      </div>
+    @endif
 
     {{-- STYLES PO --}}
     <hr class="my-4">
@@ -268,46 +274,50 @@
   // === Item PO (material) ===
   let nextIdx = {{ count($rows) ? count($rows) : 1 }};
   const itemsTbody = document.querySelector('#itemsTable tbody');
+  const btnAddRow = document.getElementById('btnAddRow');
 
-  document.getElementById('btnAddRow').addEventListener('click', function () {
-    const i = nextIdx++;
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <input type="hidden" name="items[${i}][id]" value="">
-      <td>
-        <input type="text" class="form-control"
-               name="items[${i}][material_name]"
-               placeholder="Nama material" required>
-      </td>
-      <td>
-        <input type="text" class="form-control item-material-code"
-               name="items[${i}][material_code]"
-               placeholder="Contoh: LB-001">
-      </td>
-      <td>
-        <input type="text" class="form-control"
-               name="items[${i}][unit]"
-               placeholder="pcs/kg/roll/..." required>
-      </td>
-      <td>
-        <input type="number" step="0.0001" min="0.0001"
-               class="form-control text-end"
-               name="items[${i}][ordered_quantity]"
-               placeholder="0" required>
-      </td>
-      <td class="text-center">
-        <button type="button" class="btn btn-sm btn-outline-danger btnRemoveRow">
-          <i class="fas fa-times"></i>
-        </button>
-      </td>
-    `;
-    itemsTbody.appendChild(tr);
-  });
+  if (btnAddRow && itemsTbody) {
+    btnAddRow.addEventListener('click', function () {
+      const i = nextIdx++;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <input type="hidden" name="items[${i}][id]" value="">
+        <td>
+          <input type="text" class="form-control"
+                 name="items[${i}][material_name]"
+                 placeholder="Nama material" required>
+        </td>
+        <td>
+          <input type="text" class="form-control item-material-code"
+                 name="items[${i}][material_code]"
+                 placeholder="Contoh: LB-001">
+        </td>
+        <td>
+          <input type="text" class="form-control"
+                 name="items[${i}][unit]"
+                 placeholder="pcs/kg/roll/..." required>
+        </td>
+        <td>
+          <input type="number" step="0.0001" min="0.0001"
+                 class="form-control text-end"
+                 name="items[${i}][ordered_quantity]"
+                 placeholder="0" required>
+        </td>
+        <td class="text-center">
+          <button type="button" class="btn btn-sm btn-outline-danger btnRemoveRow">
+            <i class="fas fa-times"></i>
+          </button>
+        </td>
+      `;
+      itemsTbody.appendChild(tr);
+    });
+  }
 
   document.addEventListener('click', function (e) {
     const btn = e.target.closest('.btnRemoveRow');
     if (!btn) return;
 
+    if (!itemsTbody) return;
     const rows = itemsTbody.querySelectorAll('tr');
     if (rows.length <= 1) {
       rows[0].querySelectorAll('input').forEach(i => {

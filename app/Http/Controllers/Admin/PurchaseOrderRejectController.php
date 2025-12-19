@@ -19,6 +19,10 @@ class PurchaseOrderRejectController extends Controller
      */
     public function store(Request $request, PurchaseOrder $purchaseOrder)
     {
+        if (method_exists($purchaseOrder, 'isFullFob') && $purchaseOrder->isFullFob()) {
+            return back()->with('warning', 'PO FULL FOB tidak menggunakan fitur reject dari penerimaan.');
+        }
+
         Log::info('=== MULAI PROSES REJECT MULTI ITEM ===', [
             'po_id' => $purchaseOrder->id,
             'data' => $request->all(),

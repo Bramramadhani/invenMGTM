@@ -19,8 +19,16 @@
     $style = optional($order->purchaseOrderStyle ?? null);
 
     $sourceType  = $order->source_type ?? 'po';
-    $sourceLabel = $sourceType === 'fob' ? 'Stok FOB (Buyer)' : 'Stok PO / Supplier';
+    $sourceLabel = match ($sourceType) {
+      'fob', 'fob_full' => 'Stok FOB (Buyer) — terkait PO/Style',
+      default    => 'Stok PO / Buyer',
+    };
     $buyer       = $order->buyer;
+
+    $isFobOrder = ($sourceType === 'fob');
+    $targetPo   = optional($style)->purchaseOrder;
+    $targetPoId = optional($targetPo)->id;
+    $targetPoNo = optional($targetPo)->po_number;
   @endphp
 
   <style>
@@ -174,7 +182,10 @@
               <th>Material</th>
               <th style="width:90px">Unit</th>
               <th style="width:180px">Supplier / Buyer</th>
-              <th style="width:160px">No. PO (Stok)</th>
+              @if($isFobOrder)
+                <th style="width:160px">Vendor / Toko</th>
+              @endif
+              <th style="width:160px">{{ $isFobOrder ? 'No. PO (Target)' : 'No. PO (Stok)' }}</th>
               <th style="width:140px">Qty Diminta</th>
               <th>Catatan Item</th>
             </tr>
@@ -186,9 +197,14 @@
                 $po           = optional($stock?->purchaseOrder);
                 $poId         = $po->id ?? null;
                 $poNo         = $po->po_number ?? null;
+                if ($isFobOrder) {
+                    $poId = $targetPoId;
+                    $poNo = $targetPoNo;
+                }
                 $supplierName = optional($stock?->supplier)->name;
                 $buyerNameRow = optional($stock?->buyer)->name;
                 $sourceCell   = $supplierName ?: $buyerNameRow ?: '—';
+                $vendorCell   = $stock?->vendor_name ?: '—';
               @endphp
               <tr>
                 <td>{{ $loop->iteration }}</td>
@@ -196,6 +212,9 @@
                 <td class="fw-semibold text-start">{{ $it->material_name }}</td>
                 <td>{{ $it->unit }}</td>
                 <td class="text-start">{{ $sourceCell }}</td>
+                @if($isFobOrder)
+                  <td class="text-start">{{ $vendorCell }}</td>
+                @endif
                 <td>
                   @if ($poId)
                     <a href="{{ route('admin.purchase-orders.show', $poId) }}">
@@ -210,7 +229,7 @@
               </tr>
             @empty
               <tr>
-                <td colspan="8" class="text-center text-muted">Tidak ada item.</td>
+                <td colspan="{{ $isFobOrder ? 9 : 8 }}" class="text-center text-muted">Tidak ada item.</td>
               </tr>
             @endforelse
           </tbody>

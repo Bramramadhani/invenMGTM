@@ -21,6 +21,7 @@
           <span class="small text-muted">Sumber Stok:</span>
           @php
             $oldSourceType = old('source_type', 'po');
+            $oldSourceType = $oldSourceType === 'fob' ? 'fob' : 'po';
           @endphp
           <select name="source_type" id="sourceType" class="form-select form-select-sm" style="width:auto;">
             <option value="po"  {{ $oldSourceType === 'po'  ? 'selected' : '' }}>Stok PO / Buyer</option>
@@ -30,7 +31,7 @@
       </div>
       <div class="card-body">
         <div class="row g-3">
-          <div class="col-md-4">
+          <div class="col-md-4" id="colSupplier">
             <label class="form-label">Buyer <span class="text-danger">*</span></label>
             {{-- hanya untuk AJAX, tidak dikirim ke server --}}
             <select id="supplierSelect" class="form-select" required>
@@ -41,7 +42,7 @@
             </select>
           </div>
 
-          <div class="col-md-4">
+          <div class="col-md-4" id="colPO">
             <label class="form-label">No. PO <span class="text-danger">*</span></label>
             {{-- hanya untuk AJAX, tidak dikirim ke server --}}
             <select id="poSelect" class="form-select" disabled required>
@@ -49,7 +50,7 @@
             </select>
           </div>
 
-          <div class="col-md-4">
+          <div class="col-md-4" id="colStyle">
             <label class="form-label">Style <span class="text-danger">*</span></label>
             {{-- ini yang akan dikirim ke server --}}
             <select id="styleSelect" name="purchase_order_style_id" class="form-select" disabled required>
@@ -150,8 +151,9 @@
                 <th style="width:160px">Kode</th>
                 <th>Material</th>
                 <th style="width:100px">Unit</th>
-                <th>Buyer / FOB</th>
-                <th style="width:160px">No. PO (Stok)</th>
+                <th style="width:170px">Buyer / FOB</th>
+                <th style="width:170px" class="col-vendor" id="thVendor">Vendor / Toko</th>
+                <th style="width:160px" id="thPoNumber">No. PO (Stok)</th>
                 <th style="width:160px" class="text-end">Tersedia</th>
                 <th style="width:180px" class="text-end">Qty Diminta</th>
                 <th style="width:260px">Catatan Item</th>
@@ -186,6 +188,14 @@
 <input type="hidden" id="urlPOStyles"   value="{{ route('admin.orders.po-styles', ['purchaseOrder' => '__ID__']) }}">
 <input type="hidden" id="urlBuyerStocks" value="{{ route('admin.orders.buyer-stocks', ['buyer' => '__ID__']) }}">
 
+@push('css')
+<style>
+  /* Vendor/Toko hanya relevan untuk stok FOB */
+  #stocksTable.mode-po th:nth-child(6),
+  #stocksTable.mode-po td:nth-child(6) { display: none; }
+</style>
+@endpush
+
 @push('js')
 <script>
 (function(){
@@ -194,11 +204,16 @@
   const poSelect          = document.getElementById('poSelect');
   const styleSelect       = document.getElementById('styleSelect');
   const styleHelp         = document.getElementById('styleHelp');
+  const colSupplier       = document.getElementById('colSupplier');
+  const colPO             = document.getElementById('colPO');
+  const colStyle          = document.getElementById('colStyle');
   const rowBuyer          = document.getElementById('rowBuyer');
   const buyerSelect       = document.getElementById('buyerSelect');
   const buyerRequiredMark = document.getElementById('buyerRequiredMark');
   const buyerHelp         = document.getElementById('buyerHelp');
   const stocksTitle       = document.getElementById('stocksTitle');
+  const thPoNumber        = document.getElementById('thPoNumber');
+  const stocksTable       = document.getElementById('stocksTable');
 
   const tblBody           = document.querySelector('#stocksTable tbody');
   const chkHeader         = document.getElementById('chkHeader');
@@ -214,6 +229,8 @@
   const selCountEl        = document.getElementById('selCount');
   const selTotalEl        = document.getElementById('selTotal');
 
+  let targetPoNumber = '';
+
   function getSourceType() {
     return sourceTypeSelect ? (sourceTypeSelect.value || 'po') : 'po';
   }
@@ -221,21 +238,64 @@
   function applySourceTypeUI() {
     const type = getSourceType();
 
-    if (type === 'fob') {
-      // Mode FOB: tampilkan buyer, stok diambil dari Buyer, PO & Style sebagai target produksi
-      if (rowBuyer) rowBuyer.style.display = '';
-      if (buyerRequiredMark) buyerRequiredMark.style.display = '';
-      if (buyerHelp) buyerHelp.textContent = 'Pilih Buyer yang stok-nya akan dipakai (FOB).';
+    const isFob = (type === 'fob');
+    const isFobFull = (type === 'fob_full'); // legacy (opsi ini sudah dihapus dari UI)
 
-      if (stocksTitle) stocksTitle.textContent = 'Stok Tersedia (FOB / Buyer)';
-    } else {
-      // Mode PO: buyer tidak wajib
-      if (rowBuyer) rowBuyer.style.display = 'none';
-      if (buyerRequiredMark) buyerRequiredMark.style.display = 'none';
-      if (buyerHelp) buyerHelp.textContent = 'Pilih Buyer jika sumber stok adalah FOB.';
-      if (buyerSelect) buyerSelect.value = '';
+    // Buyer (FOB)
+    if (rowBuyer) rowBuyer.style.display = isFob ? '' : 'none';
+    if (buyerRequiredMark) buyerRequiredMark.style.display = isFob ? '' : 'none';
+    if (buyerHelp) {
+      buyerHelp.textContent = isFob
+        ? 'Pilih Buyer yang stok-nya akan dipakai (FOB).'
+        : 'Pilih Buyer jika sumber stok adalah FOB.';
+    }
+    if (!isFob && buyerSelect) buyerSelect.value = '';
 
-      if (stocksTitle) stocksTitle.textContent = 'Stok Tersedia (per-PO)';
+    // Vendor/Toko hanya untuk mode FOB
+    if (stocksTable) {
+      stocksTable.classList.toggle('mode-fob', isFob);
+      stocksTable.classList.toggle('mode-po', !isFob);
+    }
+
+    // Label kolom PO: untuk FOB tampilkan target PO (bukan PO stok)
+    if (thPoNumber) {
+      thPoNumber.textContent = isFob ? 'No. PO (Target)' : 'No. PO (Stok)';
+    }
+
+    // PO & Style controls: untuk FULL FOB disembunyikan & tidak wajib
+    if (colSupplier) colSupplier.style.display = isFobFull ? 'none' : '';
+    if (colPO) colPO.style.display = isFobFull ? 'none' : '';
+    if (colStyle) colStyle.style.display = isFobFull ? 'none' : '';
+
+    if (supplierSelect) {
+      supplierSelect.disabled = isFobFull;
+      supplierSelect.required = !isFobFull;
+      if (isFobFull) supplierSelect.value = '';
+    }
+    if (poSelect) {
+      if (isFobFull) {
+        poSelect.disabled = true;
+        poSelect.required = false;
+        poSelect.innerHTML = '<option value="">— Pilih PO —</option>';
+      } else {
+        poSelect.required = true;
+      }
+    }
+    if (styleSelect) {
+      if (isFobFull) {
+        styleSelect.value = '';
+        styleSelect.disabled = true;
+        styleSelect.required = false;
+      }
+    }
+    if (styleHelp) {
+      styleHelp.style.display = isFobFull ? 'none' : '';
+    }
+
+    if (stocksTitle) {
+      stocksTitle.textContent = isFob
+        ? 'Stok Tersedia (FOB / Buyer)'
+        : 'Stok Tersedia (per-PO)';
     }
   }
 
@@ -289,6 +349,7 @@
   // Load stok & style saat PO berubah
   poSelect.addEventListener('change', async function(){
     const poId = this.value;
+    targetPoNumber = this.options?.[this.selectedIndex]?.textContent?.trim() || '';
     resetTable();
     resetStyles();
     if (!poId) return;
@@ -334,6 +395,10 @@
       return;
     }
     const data = await res.json();
+    // Sumber stok FOB tidak punya PO di stock-nya; tampilkan PO TARGET (yang dipilih di atas)
+    (data.items || []).forEach(it => {
+      it.po_number = targetPoNumber;
+    });
     renderStockRows(data.items || []);
   }
 
@@ -373,8 +438,13 @@
   function renderStockRows(items) {
     resetTable();
 
+    const type = getSourceType();
+
     items.forEach((row, idx) => {
       const tr = document.createElement('tr');
+      const poDisplay = type === 'fob'
+        ? (targetPoNumber || row.po_number || '—')
+        : (row.po_number || '—');
       const sourceLabel = row.source_label || row.supplier || row.buyer || '—';
 
       tr.innerHTML = `
@@ -386,6 +456,7 @@
         <td class="fw-semibold">${row.material_name}</td>
         <td>${row.unit ?? ''}</td>
         <td class="text-start">${sourceLabel}</td>
+        <td class="text-start">${row.vendor_name ? row.vendor_name : '—'}</td>
         <td class="text-center">${row.po_number ?? '—'}</td>
         <td class="text-end availCell">${formatNumber(row.available)}</td>
         <td>

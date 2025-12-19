@@ -34,49 +34,66 @@ class PurchaseOrderController extends Controller
     {
         $request->merge(['po_number' => trim((string) $request->input('po_number'))]);
 
-        $data = $request->validate([
+        $stockSource = $request->input('stock_source', 'po');
+        $stockSource = $stockSource === 'fob_full' ? 'fob_full' : 'po';
+
+        $rules = [
             'supplier_id'             => ['required','exists:suppliers,id'],
+            'stock_source'            => ['required', Rule::in(['po', 'fob_full'])],
             'po_number'               => [
                 'required','string','max:100',
                 Rule::unique('purchase_orders', 'po_number')
                     ->where(fn($q) => $q->where('supplier_id', $request->input('supplier_id'))),
             ],
             'notes'                   => ['nullable','string'],
-            'arrival_date'            => ['nullable','date'],
-            'target_completion_date'  => ['nullable','date','after_or_equal:arrival_date'],
+            'target_completion_date'  => ['nullable','date'],
+        ];
 
-            'items'                     => ['required','array','min:1'],
-            'items.*.material_code'     => ['nullable','string','max:64'],
-            'items.*.material_name'     => ['required','string','max:255'],
-            'items.*.unit'              => ['required','string','max:50'],
-            'items.*.ordered_quantity'  => ['required','numeric','min:0.0001'],
+        if ($stockSource === 'fob_full') {
+            // FULL FOB: fokus No PO + Style saja (tanpa item material/receipt)
+            $rules['styles']                  = ['required', 'array', 'min:1'];
+            $rules['styles.*.style_name']     = ['required', 'string', 'max:100'];
+            $rules['styles.*.style_quantity'] = ['required', 'integer', 'min:1'];
 
-            // Styles (opsional)
-            'styles'                      => ['nullable','array'],
-            'styles.*.style_name'         => ['required_with:styles','string','max:100'],
-            'styles.*.style_quantity'     => ['required_with:styles','integer','min:1'],
-        ]);
+            // Item material tidak wajib (akan diabaikan)
+            $rules['items'] = ['nullable', 'array'];
+        } else {
+            // PO normal: item material wajib, styles opsional
+            $rules['items']                    = ['required', 'array', 'min:1'];
+            $rules['items.*.material_code']    = ['nullable', 'string', 'max:64'];
+            $rules['items.*.material_name']    = ['required', 'string', 'max:255'];
+            $rules['items.*.unit']             = ['required', 'string', 'max:50'];
+            $rules['items.*.ordered_quantity'] = ['required', 'numeric', 'min:0.0001'];
+
+            $rules['styles']                  = ['nullable', 'array'];
+            $rules['styles.*.style_name']     = ['required_with:styles', 'string', 'max:100'];
+            $rules['styles.*.style_quantity'] = ['required_with:styles', 'integer', 'min:1'];
+        }
+
+        $data = $request->validate($rules);
 
         DB::transaction(function () use ($data) {
             $po = PurchaseOrder::create([
                 'supplier_id'            => $data['supplier_id'],
+                'stock_source'           => $data['stock_source'] ?? 'po',
                 'po_number'              => $data['po_number'],
                 'notes'                  => $data['notes'] ?? null,
-                'arrival_date'           => $data['arrival_date'] ?? null,
                 'target_completion_date' => $data['target_completion_date'] ?? null,
                 'is_completed'           => false,
             ]);
 
-            // Items
-            foreach ($data['items'] as $row) {
-                PurchaseOrderItem::create([
-                    'purchase_order_id'        => $po->id,
-                    'material_code'            => trim((string)($row['material_code'] ?? '')) ?: null,
-                    'material_name'            => trim((string)$row['material_name']),
-                    'unit'                     => trim((string)$row['unit']),
-                    'ordered_quantity'         => (float) $row['ordered_quantity'],
-                    'actual_arrived_quantity'  => 0.0,
-                ]);
+            // Items hanya untuk PO normal
+            if (($data['stock_source'] ?? 'po') !== 'fob_full') {
+                foreach ($data['items'] as $row) {
+                    PurchaseOrderItem::create([
+                        'purchase_order_id'        => $po->id,
+                        'material_code'            => trim((string)($row['material_code'] ?? '')) ?: null,
+                        'material_name'            => trim((string)$row['material_name']),
+                        'unit'                     => trim((string)$row['unit']),
+                        'ordered_quantity'         => (float) $row['ordered_quantity'],
+                        'actual_arrived_quantity'  => 0.0,
+                    ]);
+                }
             }
 
             // Styles (jika ada)
@@ -144,7 +161,7 @@ class PurchaseOrderController extends Controller
     {
         $request->merge(['po_number' => trim((string) $request->input('po_number'))]);
 
-        $data = $request->validate([
+        $rules = [
             'supplier_id'             => ['required','exists:suppliers,id'],
             'po_number'               => [
                 'required','string','max:100',
@@ -153,20 +170,27 @@ class PurchaseOrderController extends Controller
                     ->ignore($purchaseOrder->id),
             ],
             'notes'                   => ['nullable','string'],
-            'arrival_date'            => ['nullable','date'],
-            'target_completion_date'  => ['nullable','date','after_or_equal:arrival_date'],
+            'target_completion_date'  => ['nullable','date'],
+        ];
 
-            'items'                     => ['required','array','min:1'],
-            'items.*.id'                => ['nullable','integer','exists:purchase_order_items,id'],
-            'items.*.material_code'     => ['nullable','string','max:64'],
-            'items.*.material_name'     => ['required','string','max:255'],
-            'items.*.unit'              => ['required','string','max:50'],
-            'items.*.ordered_quantity'  => ['required','numeric','min:0.0001'],
+        if ($purchaseOrder->isFullFob()) {
+            $rules['styles']                  = ['required', 'array', 'min:1'];
+            $rules['styles.*.style_name']     = ['required', 'string', 'max:100'];
+            $rules['styles.*.style_quantity'] = ['required', 'integer', 'min:1'];
+        } else {
+            $rules['items']                    = ['required','array','min:1'];
+            $rules['items.*.id']               = ['nullable','integer','exists:purchase_order_items,id'];
+            $rules['items.*.material_code']    = ['nullable','string','max:64'];
+            $rules['items.*.material_name']    = ['required','string','max:255'];
+            $rules['items.*.unit']             = ['required','string','max:50'];
+            $rules['items.*.ordered_quantity'] = ['required','numeric','min:0.0001'];
 
-            'styles'                      => ['nullable','array'],
-            'styles.*.style_name'         => ['required_with:styles','string','max:100'],
-            'styles.*.style_quantity'     => ['required_with:styles','integer','min:1'],
-        ]);
+            $rules['styles']                  = ['nullable','array'];
+            $rules['styles.*.style_name']     = ['required_with:styles','string','max:100'];
+            $rules['styles.*.style_quantity'] = ['required_with:styles','integer','min:1'];
+        }
+
+        $data = $request->validate($rules);
 
         DB::transaction(function () use ($purchaseOrder, $data) {
             $hasPostedReceipts = $purchaseOrder->hasPostedReceipt();
@@ -191,9 +215,27 @@ class PurchaseOrderController extends Controller
                 'supplier_id'            => $hasPostedReceipts ? $purchaseOrder->supplier_id : $data['supplier_id'],
                 'po_number'              => $hasPostedReceipts ? $purchaseOrder->po_number : $data['po_number'],
                 'notes'                  => $data['notes'] ?? null,
-                'arrival_date'           => $data['arrival_date'] ?? null,
                 'target_completion_date' => $data['target_completion_date'] ?? null,
             ]);
+
+            if ($purchaseOrder->isFullFob()) {
+                // FULL FOB: hanya update Styles, tanpa sync item material
+                $purchaseOrder->styles()->delete();
+
+                foreach ($data['styles'] as $row) {
+                    if (!isset($row['style_name']) || $row['style_name'] === '') {
+                        continue;
+                    }
+
+                    PurchaseOrderStyle::create([
+                        'purchase_order_id' => $purchaseOrder->id,
+                        'style_name'        => trim((string)$row['style_name']),
+                        'style_quantity'    => (int)$row['style_quantity'],
+                    ]);
+                }
+
+                return;
+            }
 
             // ====== SYNC ITEMS TANPA DELETE MASSAL ======
             $existingItems = $purchaseOrder->items()->get()->keyBy('id');

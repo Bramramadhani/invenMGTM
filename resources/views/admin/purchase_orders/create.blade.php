@@ -28,6 +28,11 @@
   <form id="poForm" method="post" action="{{ route('admin.purchase-orders.store') }}" autocomplete="off">
     @csrf
 
+    @php
+      $oldStockSource = old('stock_source', 'po');
+      $oldStockSource = $oldStockSource === 'fob_full' ? 'fob_full' : 'po';
+    @endphp
+
     {{-- ==================== SECTION 1: INFO PO ==================== --}}
     <div class="card mb-4">
       <div class="card-header bg-light">
@@ -49,6 +54,20 @@
           </div>
 
           <div class="col-md-4">
+            <label class="form-label">Sumber Stok <span class="text-danger">*</span></label>
+            <select class="form-select" name="stock_source" id="stockSource" required>
+              <option value="po" {{ $oldStockSource === 'po' ? 'selected' : '' }}>PO (Penerimaan/Receipt)</option>
+              <option value="fob_full" {{ $oldStockSource === 'fob_full' ? 'selected' : '' }}>FULL FOB (tanpa penerimaan)</option>
+            </select>
+            <div class="form-text">
+              Jika memilih <strong>FULL FOB</strong>, PO ini tidak memakai penerimaan/receipt dan item material tidak perlu diisi.
+            </div>
+            @error('stock_source')
+              <div class="text-danger small mt-1">{{ $message }}</div>
+            @enderror
+          </div>
+
+          <div class="col-md-4">
             <label class="form-label">Nomor PO <span class="text-danger">*</span></label>
             <input class="form-control"
                    type="text"
@@ -62,7 +81,7 @@
           </div>
 
           {{-- Kedatangan (opsional) DIHAPUS --}}
-          <div class="col-md-4">
+          <div class="col-md-4" id="colTargetDate">
             <label class="form-label">Target Selesai</label>
             <input class="form-control"
                    type="date"
@@ -148,7 +167,7 @@
     </div>
 
     {{-- ==================== SECTION 3: ITEM MATERIAL ==================== --}}
-    <div class="card mb-4">
+    <div class="card mb-4" id="cardItems">
       <div class="card-header bg-light d-flex justify-content-between align-items-center">
         <div>
           <strong>3. Item Material</strong>
@@ -382,5 +401,53 @@
     text.classList.add('d-none');
     busy.classList.remove('d-none');
   });
+
+  // ====== Toggle UI untuk mode FULL FOB ======
+  const stockSourceEl  = document.getElementById('stockSource');
+  const itemsCardEl    = document.getElementById('cardItems');
+  const targetDateCol  = document.getElementById('colTargetDate');
+  const addItemBtn     = document.getElementById('btnAddItemRow');
+
+  function setItemsRequired(enabled) {
+    if (!itemsTbody) return;
+    itemsTbody.querySelectorAll('input').forEach(inp => {
+      // field wajib: material_name, unit, ordered_quantity
+      if (!inp.name) return;
+      if (
+        inp.name.includes('[material_name]') ||
+        inp.name.includes('[unit]') ||
+        inp.name.includes('[ordered_quantity]')
+      ) {
+        inp.required = enabled;
+      }
+    });
+  }
+
+  function setStylesRequired(enabled) {
+    if (!stylesTbody) return;
+    stylesTbody.querySelectorAll('input').forEach(inp => {
+      if (!inp.name) return;
+      if (inp.name.includes('[style_name]') || inp.name.includes('[style_quantity]')) {
+        inp.required = enabled;
+      }
+    });
+  }
+
+  function applyStockSourceUI() {
+    const isFullFob = (stockSourceEl && stockSourceEl.value === 'fob_full');
+
+    if (itemsCardEl) itemsCardEl.style.display = isFullFob ? 'none' : '';
+    if (targetDateCol) targetDateCol.style.display = isFullFob ? 'none' : '';
+    if (addItemBtn) addItemBtn.disabled = isFullFob;
+
+    // Browser validation: jangan blok submit saat FULL FOB
+    setItemsRequired(!isFullFob);
+    setStylesRequired(isFullFob);
+  }
+
+  if (stockSourceEl) {
+    stockSourceEl.addEventListener('change', applyStockSourceUI);
+  }
+  applyStockSourceUI();
 </script>
 @endsection

@@ -93,9 +93,9 @@
         </div>
 
         <div class="col-md-3">
-          <label class="form-label small-label">Supplier</label>
+          <label class="form-label small-label">Buyer</label>
           <select class="form-select js-auto supplier-select" name="supplier_id" style="width:100%">
-            <option value="">— Semua Supplier —</option>
+            <option value="">— Semua Buyer —</option>
 
             @if($suppliers->take(10)->count() > 0)
               <optgroup label="Buyer Utama">
@@ -108,7 +108,7 @@
             @endif
 
             @if($suppliers->count() > 10)
-              <optgroup label="Supplier Lainnya">
+              <optgroup label="Buyer Lainnya">
                 @foreach ($suppliers->slice(10) as $s)
                   <option value="{{ $s->id }}" {{ (string)$supplierId===(string)$s->id ? 'selected' : '' }}>
                     {{ $s->name }}
@@ -213,7 +213,7 @@
             <thead>
               <tr>
                 <th class="nowrap" style="width:130px;">Tanggal</th>
-                <th class="text-center" style="width:140px;">Supplier</th>
+                <th class="text-center" style="width:140px;">Buyer</th>
                 <th class="text-center" style="width:120px;">No. PO</th>
                 <th class="text-center" style="width:140px;">Style</th>
                 <th class="text-center" style="width:90px;">Kode</th>
@@ -233,7 +233,9 @@
             <tbody>
               @forelse ($outRows as $r)
                 @php
-                  $supplier  = $r->supplier->name ?? '—';
+                  $buyerName = optional($r->supplier)->name
+                    ?: optional(optional($r->stock)->buyer)->name
+                    ?: '—';
                   $code      = $r->stock->material_code ?? '—';
                   $unit      = $r->unit ?? ($r->stock->unit ?? '—');
                   $material  = $r->material_name ?? ($r->stock->material_name ?? '—');
@@ -246,7 +248,7 @@
                 @endphp
                 <tr>
                   <td class="nowrap">{{ optional($r->moved_at)->format('d-m-Y H:i') }}</td>
-                  <td class="text-center">{{ $supplier }}</td>
+                  <td class="text-center">{{ $buyerName }}</td>
                   <td class="text-center">{{ $r->po_number ?: '—' }}</td>
                   <td class="text-center">{{ $styleName ?: '—' }}</td>
                   <td class="text-center">{{ $code }}</td>
@@ -286,7 +288,7 @@
             <thead>
               <tr>
                 <th class="nowrap" style="width:130px;">Tanggal</th>
-                <th class="text-center" style="width:140px;">Supplier</th>
+                <th class="text-center" style="width:140px;">Buyer</th>
                 <th class="text-center" style="width:120px;">No. PO</th>
                 <th class="text-center" style="width:90px;">Kode</th>
                 <th class="text-center">Material</th>
@@ -298,14 +300,16 @@
             <tbody>
               @forelse ($inRows as $r)
                 @php
-                  $supplier = $r->supplier->name ?? '—';
+                  $buyerName = optional($r->supplier)->name
+                    ?: optional(optional($r->stock)->buyer)->name
+                    ?: '—';
                   $code     = $r->stock->material_code ?? '—';
                   $unit     = $r->unit ?? ($r->stock->unit ?? '—');
                   $material = $r->material_name ?? ($r->stock->material_name ?? '—');
                 @endphp
                 <tr>
                   <td class="nowrap">{{ optional($r->moved_at)->format('d-m-Y') }}</td>
-                  <td class="text-center">{{ $supplier }}</td>
+                  <td class="text-center">{{ $buyerName }}</td>
                   <td class="text-center">{{ $r->po_number ?: '—' }}</td>
                   <td class="text-center">{{ $code }}</td>
                   <td class="text-center">{{ $material }}</td>

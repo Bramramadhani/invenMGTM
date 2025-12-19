@@ -7,6 +7,10 @@
     $hasPostedReceipts = \App\Models\PurchaseReceipt::where('purchase_order_id', $purchaseOrder->id)
                         ->where('status','posted')->exists();
 
+    $isFullFob = method_exists($purchaseOrder, 'isFullFob')
+      ? $purchaseOrder->isFullFob()
+      : (($purchaseOrder->stock_source ?? 'po') === 'fob_full');
+
     if (!function_exists('qty_fmt')) {
       function qty_fmt($n, $dec = 4) {
         $s = number_format((float)$n, $dec, '.', '');
@@ -26,21 +30,32 @@
     </div>
 
     <div class="d-flex gap-2 flex-wrap">
-      <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#rejectModalGlobal">
-        <i class="fas fa-ban"></i> Reject Barang
-      </button>
+      @if(!$isFullFob)
+        <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#rejectModalGlobal">
+          <i class="fas fa-ban"></i> Reject Barang
+        </button>
+      @endif
 
-      @if($hasPostedReceipts)
+      @if(!$isFullFob && $hasPostedReceipts)
         <a href="{{ route('admin.receipts.pdf-merged', $purchaseOrder) }}" class="btn btn-outline-secondary">
           <i class="fas fa-file-pdf"></i> Download PDF
         </a>
       @endif
 
-      <a href="{{ route('admin.receipts.create', $purchaseOrder) }}" class="btn btn-outline-success">
-        <i class="fas fa-inbox"></i> Terima Barang
-      </a>
+      @if(!$isFullFob)
+        <a href="{{ route('admin.receipts.create', $purchaseOrder) }}" class="btn btn-outline-success">
+          <i class="fas fa-inbox"></i> Terima Barang
+        </a>
+      @endif
     </div>
   </div>
+
+  @if($isFullFob)
+    <div class="alert alert-info">
+      <strong>PO FULL FOB</strong> ƒ?" PO ini tidak menggunakan penerimaan/receipt dan tidak memiliki item material di PO.
+      Pengambilan barang dilakukan dari <strong>stok FOB</strong> melalui menu <strong>Permintaan Barang</strong>.
+    </div>
+  @endif
 
   {{-- INFO + STYLES --}}
   <div class="row g-3 mb-4">
@@ -53,6 +68,9 @@
               <span class="badge bg-success">SELESAI</span>
             @else
               <span class="badge bg-warning text-dark">BELUM SELESAI</span>
+            @endif
+            @if($isFullFob)
+              <span class="badge bg-info text-dark ms-2">FULL FOB</span>
             @endif
           </span>
         </div>
@@ -124,6 +142,7 @@
     </div>
   </div>
 
+  @if(!$isFullFob)
   {{-- DRAFT RECEIPT --}}
   @php
     $draftReceipts = \App\Models\PurchaseReceipt::with('items')
@@ -288,6 +307,8 @@
   @endforeach
   @endif
 
+  @endif
+
   {{-- ITEM PO --}}
   <div class="card mb-4">
     <div class="card-header bg-light d-flex justify-content-between align-items-center">
@@ -369,6 +390,7 @@
   </a>
 </div>
 
+@if(!$isFullFob)
 {{-- MODAL REJECT PER ITEM --}}
 @foreach($purchaseOrder->items as $item)
   @php
@@ -486,6 +508,8 @@
     </form>
   </div>
 </div>
+
+@endif
 
 @endsection
 

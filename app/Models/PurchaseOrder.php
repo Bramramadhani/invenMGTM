@@ -14,6 +14,7 @@ class PurchaseOrder extends Model
      */
     protected $fillable = [
         'supplier_id',
+        'stock_source',
         'po_number',
         'arrival_date',
         'target_completion_date',
@@ -26,6 +27,7 @@ class PurchaseOrder extends Model
      */
     protected $attributes = [
         'is_completed' => false,
+        'stock_source' => 'po',
     ];
 
     /**
@@ -83,6 +85,14 @@ class PurchaseOrder extends Model
         return $this->receipts()
             ->where('status', PurchaseReceipt::STATUS_POSTED)
             ->exists();
+    }
+
+    /**
+     * PO ini adalah FULL dari stok FOB (tanpa receipt).
+     */
+    public function isFullFob(): bool
+    {
+        return ($this->stock_source ?? 'po') === 'fob_full';
     }
 
     /* ========================== SCOPE ========================= */

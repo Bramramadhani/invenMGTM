@@ -23,8 +23,14 @@
     ?? '';
 
   $sourceType  = $order->source_type ?? 'po';
-  $sourceLabel = $sourceType === 'fob' ? 'Stok FOB (Buyer)' : 'Stok PO / Supplier';
+  $sourceLabel = match ($sourceType) {
+    'fob', 'fob_full' => 'Stok FOB (Buyer) — terkait PO/Style',
+    default    => 'Stok PO / Buyer',
+  };
   $buyerName   = optional($order->buyer)->name;
+
+  $isFobOrder  = ($sourceType === 'fob');
+  $targetPoNo  = optional(optional($style)->purchaseOrder)->po_number;
 @endphp
 <!DOCTYPE html>
 <html>
@@ -185,7 +191,8 @@
           $supplierName = optional($stock?->supplier)->name;
           $buyerNameRow = optional($stock?->buyer)->name;
           $sourceLabel  = $supplierName ?: $buyerNameRow;
-          $po           = optional($stock?->purchaseOrder)->po_number;
+          $vendor       = $stock?->vendor_name;
+          $po           = $isFobOrder ? $targetPoNo : optional($stock?->purchaseOrder)->po_number;
         @endphp
         <tr>
           <td>{{ $i+1 }}</td>
@@ -196,6 +203,7 @@
           <td>
             @if($sourceLabel || $po)
               @if($sourceLabel) <div>{{ $sourceLabel }}</div> @endif
+              @if($isFobOrder && !empty($vendor)) <div class="small">Vendor: {{ $vendor }}</div> @endif
               @if($po) <div class="small">PO stok: {{ $po }}</div> @endif
             @else
               —

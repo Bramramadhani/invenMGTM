@@ -24,6 +24,12 @@ class PurchaseReceiptController extends Controller
      */
     public function create(PurchaseOrder $purchaseOrder)
     {
+        if (method_exists($purchaseOrder, 'isFullFob') && $purchaseOrder->isFullFob()) {
+            return redirect()
+                ->route('admin.purchase-orders.show', $purchaseOrder->id)
+                ->with('warning', 'PO FULL FOB tidak menggunakan penerimaan/receipt.');
+        }
+
         $purchaseOrder->load(['items' => function ($q) {
             $q->withSum(['receiptItems as received_total' => function ($r) {
                 $r->whereHas('receipt', fn ($rec) => $rec->where('status', PurchaseReceipt::STATUS_POSTED));
@@ -47,6 +53,12 @@ class PurchaseReceiptController extends Controller
      */
     public function store(Request $request, PurchaseOrder $purchaseOrder)
     {
+        if (method_exists($purchaseOrder, 'isFullFob') && $purchaseOrder->isFullFob()) {
+            return redirect()
+                ->route('admin.purchase-orders.show', $purchaseOrder->id)
+                ->with('warning', 'PO FULL FOB tidak menggunakan penerimaan/receipt.');
+        }
+
         $data = $request->validate([
             'receipt_date'         => ['required', 'date'],
             'idempotency_token'    => ['nullable', 'string', 'max:100'],

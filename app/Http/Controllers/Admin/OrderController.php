@@ -58,7 +58,7 @@ class OrderController extends Controller
 
     /**
      * Form Buat Permintaan.
-     * Sekarang mendukung 2 mode sumber stok:
+     * Mendukung 2 mode sumber stok:
      * - source_type = 'po'  → stok per-PO (supplier)
      * - source_type = 'fob' → stok FOB (Buyer)
      */
@@ -141,6 +141,7 @@ class OrderController extends Controller
                     'material_code' => $s->material_code,
                     'material_name' => $s->material_name,
                     'unit'          => $s->unit,
+                    'vendor_name'   => $s->vendor_name,
                     'supplier'      => $supplierName,
                     'buyer'         => $buyerName,
                     'source_label'  => $sourceLabel,
@@ -178,6 +179,7 @@ class OrderController extends Controller
                     'material_code' => $s->material_code,
                     'material_name' => $s->material_name,
                     'unit'          => $s->unit,
+                    'vendor_name'   => $s->vendor_name,
                     'supplier'      => $supplierName,
                     'buyer'         => $buyerName,
                     'source_label'  => $sourceLabel,
@@ -265,7 +267,8 @@ class OrderController extends Controller
         ]);
 
         // Kalau mode FOB, buyer wajib diisi
-        if (($data['source_type'] ?? 'po') === 'fob' && empty($data['buyer_id'])) {
+        $sourceType = $data['source_type'] ?? 'po';
+        if ($sourceType === 'fob' && empty($data['buyer_id'])) {
             throw ValidationException::withMessages([
                 'buyer_id' => ['Buyer wajib dipilih untuk permintaan dari stok FOB.'],
             ]);
@@ -468,6 +471,7 @@ class OrderController extends Controller
             'user',
         ]);
 
+        $sourceType = $order->source_type ?? 'po';
         $style = $order->purchaseOrderStyle;
         $po    = optional($style)->purchaseOrder;
 
@@ -490,7 +494,7 @@ class OrderController extends Controller
      *
      * Logika stok beda antara source_type:
      * - po  → stok normal & harus satu PO dengan Style
-     * - fob → stok FOB & (jika buyer_id ada) harus dari buyer yang sama
+     * - fob → stok FOB & (buyer_id) harus dari buyer yang sama
      */
     public function update(Request $request, Order $order)
     {
@@ -574,7 +578,7 @@ class OrderController extends Controller
                     'order_id'                => $order->id,
                     'requested_at'            => $now,
                     'requested_by'            => Auth::id(),
-                    'purchase_order_style_id' => $style->id,
+                    'purchase_order_style_id' => $style?->id,
                     'created_at'              => $now,
                     'updated_at'              => $now,
                 ]);
@@ -715,7 +719,7 @@ class OrderController extends Controller
                         ]);
                     } else {
                         // safety: kalau movement belum ada, buat baru
-                        $poNumberForMovement = $po->po_number ?? optional($st->purchaseOrder)->po_number;
+                        $poNumberForMovement = optional($po)->po_number ?? optional($st->purchaseOrder)->po_number;
 
                         StockMovement::recordOut(
                             stockId:     $st->id,
@@ -771,7 +775,7 @@ class OrderController extends Controller
                     $st->decrement('quantity', $newQty);
 
                     // d) Movement OUT baru
-                    $poNumberForMovement = $po->po_number ?? optional($st->purchaseOrder)->po_number;
+                    $poNumberForMovement = optional($po)->po_number ?? optional($st->purchaseOrder)->po_number;
 
                     StockMovement::recordOut(
                         stockId:     $st->id,

@@ -26,26 +26,32 @@
         Sumber PO & Style (terkunci)
       </div>
       <div class="card-body">
-        <div class="row g-3">
-          <div class="col-md-4">
-            <label class="form-label">Supplier</label>
-            <input class="form-control" value="{{ optional($po->supplier)->name }}" disabled>
+        @if(!empty($po) && !empty($style))
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">Buyer</label>
+              <input class="form-control" value="{{ optional($po->supplier)->name }}" disabled>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">No. PO</label>
+              <input class="form-control" value="{{ $po->po_number }}" disabled>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Style</label>
+              <input class="form-control" value="{{ $style->style_name ?? $style->name ?? ('Style #'.$style->id) }}" disabled>
+            </div>
           </div>
-          <div class="col-md-4">
-            <label class="form-label">No. PO</label>
-            <input class="form-control" value="{{ $po->po_number }}" disabled>
+        @else
+          <div class="alert alert-warning mb-0">
+            Data Style/PO untuk permintaan ini tidak ditemukan.
           </div>
-          <div class="col-md-4">
-            <label class="form-label">Style</label>
-            <input class="form-control" value="{{ $style->style_name ?? $style->name ?? ('Style #'.$style->id) }}" disabled>
-          </div>
-        </div>
+        @endif
 
         <div class="row g-3 mt-3">
           <div class="col-md-4">
             <label class="form-label">Sumber Stok</label>
             <input class="form-control"
-                   value="{{ ($order->source_type ?? 'po') === 'fob' ? 'Stok FOB (Buyer)' : 'Stok PO / Supplier' }}"
+                   value="{{ ($order->source_type ?? 'po') === 'fob' ? 'Stok FOB (Buyer)' : 'Stok PO / Buyer' }}"
                    disabled>
           </div>
           @if(($order->source_type ?? 'po') === 'fob')
@@ -104,7 +110,7 @@
           @if(($order->source_type ?? 'po') === 'fob')
             Stok Tersedia (FOB / Buyer)
           @else
-            Stok Tersedia (PO: {{ $po->po_number }})
+            Stok Tersedia (PO: {{ $po->po_number ?? '—' }})
           @endif
         </strong>
         <div class="d-flex gap-2">
@@ -127,8 +133,9 @@
                 <th style="width:160px">Kode</th>
                 <th>Material</th>
                 <th style="width:100px">Unit</th>
-                <th>Supplier / Buyer</th>
-                <th style="width:160px">No. PO (Stok)</th>
+                <th style="width:170px">Supplier / Buyer</th>
+                <th style="width:170px" id="thVendor">Vendor / Toko</th>
+                <th style="width:160px" id="thPoNumber">No. PO (Stok)</th>
                 <th style="width:160px" class="text-end">Tersedia</th>
                 <th style="width:180px" class="text-end">Qty Diminta</th>
                 <th style="width:260px">Catatan Item</th>
@@ -156,25 +163,39 @@
     </div>
 
     {{-- Hidden URL for AJAX --}}
-    <input type="hidden" id="urlPOStocks" value="{{ route('admin.orders.po-stocks', ['purchaseOrder' => $po->id]) }}">
+    @if(!empty($po))
+      <input type="hidden" id="urlPOStocks" value="{{ route('admin.orders.po-stocks', ['purchaseOrder' => $po->id]) }}">
+    @endif
 
   </form>
 </div>
 
+@push('css')
+<style>
+  /* Vendor/Toko hanya relevan untuk stok FOB */
+  #stocksTable.mode-po th:nth-child(6),
+  #stocksTable.mode-po td:nth-child(6) { display: none; }
+</style>
+@endpush
+
 @push('js')
 <script>
 (function(){
+  const stocksTable    = document.getElementById('stocksTable');
+  const thPoNumber     = document.getElementById('thPoNumber');
   const tblBody        = document.querySelector('#stocksTable tbody');
   const chkHeader      = document.getElementById('chkHeader');
   const btnSelectAll   = document.getElementById('btnSelectAll');
   const btnClear       = document.getElementById('btnClear');
   const form           = document.getElementById('orderForm');
 
-  const urlPOStocks    = document.getElementById('urlPOStocks').value;
+  const urlPOStocksEl  = document.getElementById('urlPOStocks');
+  const urlPOStocks    = urlPOStocksEl ? urlPOStocksEl.value : null;
   const sourceTypeEl   = document.getElementById('sourceType');
   const sourceType     = sourceTypeEl ? (sourceTypeEl.value || 'po') : 'po';
   const urlBuyerStocksEl = document.getElementById('urlBuyerStocks');
   const urlBuyerStocks = urlBuyerStocksEl ? urlBuyerStocksEl.value : null;
+  const targetPoNumber = {!! json_encode($po->po_number ?? '') !!};
 
   const selCountEl = document.getElementById('selCount');
   const selTotalEl = document.getElementById('selTotal');
@@ -199,6 +220,15 @@
   async function loadStocks(){
     resetTable();
 
+    // Vendor/Toko hanya untuk mode FOB
+    if (stocksTable) {
+      stocksTable.classList.toggle('mode-fob', sourceType === 'fob');
+      stocksTable.classList.toggle('mode-po', sourceType !== 'fob');
+    }
+    if (thPoNumber) {
+      thPoNumber.textContent = sourceType === 'fob' ? 'No. PO (Target)' : 'No. PO (Stok)';
+    }
+
     let res;
     if (sourceType === 'fob') {
       if (!urlBuyerStocks) {
@@ -207,12 +237,21 @@
       }
       res = await fetch(urlBuyerStocks);
     } else {
+      if (!urlPOStocks) {
+        alert('URL stok PO tidak tersedia.');
+        return;
+      }
       res = await fetch(urlPOStocks);
     }
 
     if (!res.ok) return alert('Gagal memuat stok');
     const data  = await res.json();
     const items = data.items || [];
+
+    // Untuk mode FOB: tampilkan PO TARGET di kolom "No. PO (Stok)"
+    if (sourceType === 'fob' && targetPoNumber) {
+      items.forEach(it => { it.po_number = targetPoNumber; });
+    }
 
     items.forEach((row, idx) => {
       const tr = document.createElement('tr');
@@ -227,6 +266,7 @@
         <td class="fw-semibold">${row.material_name}</td>
         <td>${row.unit ?? ''}</td>
         <td class="text-start">${sourceLabel}</td>
+        <td class="text-start">${row.vendor_name ? row.vendor_name : '—'}</td>
         <td class="text-center">${row.po_number ?? '—'}</td>
         <td class="text-end availCell">${formatNumber(row.available)}</td>
         <td>

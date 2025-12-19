@@ -159,7 +159,11 @@ class StockMovement extends Model
                   $s->where('name', 'like', $like);
               })
               ->orWhereHas('stock', function ($st) use ($like) {
-                  $st->where('material_code', 'like', $like);
+                  $st->where('material_code', 'like', $like)
+                     ->orWhereHas('buyer', function ($b) use ($like) {
+                         $b->where('name', 'like', $like)
+                           ->orWhere('code', 'like', $like);
+                     });
               });
         });
     }
@@ -175,7 +179,8 @@ class StockMovement extends Model
     {
         return $q->with([
             'supplier:id,name',
-            'stock:id,material_code,material_name,unit,last_po_number',
+            'stock:id,buyer_id,material_code,material_name,unit,last_po_number',
+            'stock.buyer:id,name,code',
 
             // Order langsung dari movement
             'order:id,production_name,production_leader_name,warehouse_admin_name,warehouse_leader_name,supply_chain_head_name,purchase_order_style_id',

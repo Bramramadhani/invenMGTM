@@ -52,6 +52,10 @@ class PurchaseReceiptPostingController extends Controller
                 return back()->with('warning', 'Receipt harus terkait PO agar stok dipisah per-PO.');
             }
 
+            if (method_exists($po, 'isFullFob') && $po->isFullFob()) {
+                return back()->with('warning', 'PO FULL FOB tidak menggunakan penerimaan/receipt.');
+            }
+
             // supplier per-PO (bukan per item)
             $supplierId = $po->supplier_id;
 

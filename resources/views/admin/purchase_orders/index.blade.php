@@ -36,6 +36,9 @@
 
               <td class="fw-semibold">
                 {{ $po->po_number ?? '—' }}
+                @if(method_exists($po, 'isFullFob') ? $po->isFullFob() : (($po->stock_source ?? 'po') === 'fob_full'))
+                  <span class="badge bg-info text-dark ms-2">FULL FOB</span>
+                @endif
               </td>
 
               <td>
@@ -48,7 +51,11 @@
               </td>
 
               <td class="text-center">
-                {{ $po->items?->count() ?? 0 }}
+                @if(method_exists($po, 'isFullFob') ? $po->isFullFob() : (($po->stock_source ?? 'po') === 'fob_full'))
+                  —
+                @else
+                  {{ $po->items?->count() ?? 0 }}
+                @endif
               </td>
 
               <td class="text-center">
@@ -74,10 +81,12 @@
                   </a>
 
                   {{-- Terima Parsial (buat Receipt Draft) --}}
-                  <a href="{{ route('admin.receipts.create', $po) }}"
-                     class="btn btn-outline-success">
-                    <i class="fas fa-inbox"></i> Terima
-                  </a>
+                  @if(!(method_exists($po, 'isFullFob') ? $po->isFullFob() : (($po->stock_source ?? 'po') === 'fob_full')))
+                    <a href="{{ route('admin.receipts.create', $po) }}"
+                       class="btn btn-outline-success">
+                      <i class="fas fa-inbox"></i> Terima
+                    </a>
+                  @endif
 
                   {{-- Hapus --}}
                   <form action="{{ route('admin.purchase-orders.destroy', $po->id) }}"

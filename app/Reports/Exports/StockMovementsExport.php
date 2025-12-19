@@ -101,7 +101,7 @@ class MovementsOutSheetExport implements
         $head = [
             'Tanggal',   // dengan jam
             'Jenis',
-            'Supplier',
+            'Buyer',
             'No PO',
             'Style',
             'Kode',
@@ -124,7 +124,9 @@ class MovementsOutSheetExport implements
 
     public function map($r): array
     {
-        $supplier = optional($r->supplier)->name ?? '';
+        $buyerName = optional($r->supplier)->name
+            ?: optional(optional($r->stock)->buyer)->name
+            ?: '';
         $code     = optional($r->stock)->material_code ?? '';
         $unit     = $r->unit ?? (optional($r->stock)->unit ?? '');
         $material = $r->material_name ?? (optional($r->stock)->material_name ?? $r->material);
@@ -141,7 +143,7 @@ class MovementsOutSheetExport implements
         $row = [
             optional($r->moved_at)?->format('Y-m-d H:i:s'), // dengan jam
             $r->direction,
-            $supplier,
+            $buyerName,
             (string) $r->po_number,
             $styleName,
             $code,
@@ -164,7 +166,7 @@ class MovementsOutSheetExport implements
 
     public function columnWidths(): array
     {
-        // Susunan: A: Tgl, B:Jenis, C:Supplier, D:No PO, E:Style, F:Kode, G:Material, H:Unit, I:Qty, J:Catatan
+        // Susunan: A:Tgl, B:Jenis, C:Buyer, D:No PO, E:Style, F:Kode, G:Material, H:Unit, I:Qty, J:Catatan
         $widths = [
             'A' => 20,
             'B' => 10,
@@ -179,7 +181,7 @@ class MovementsOutSheetExport implements
         ];
 
         if ($this->showNames) {
-            // K:Produksi, L:Leader Produksi, M:Checker, N:Leader Gudang, O:Supply Chain Head
+            // K:Produksi, L:Leader Produksi, M:Checker Gudang, N:Leader Gudang, O:Supply Chain Head
             $widths += [
                 'K' => 22,
                 'L' => 22,
@@ -254,7 +256,7 @@ class MovementsOutSheetExport implements
 
                 // Info filter
                 $info = 'Jenis: OUT'
-                    . ($this->supplierId ? " | Supplier ID: {$this->supplierId}" : '')
+                    . ($this->supplierId ? " | Buyer ID: {$this->supplierId}" : '')
                     . ($this->q ? " | Cari: {$this->q}" : '')
                     . ($this->showNames ? " | Tampilkan nama Produksi & Gudang" : '');
 
@@ -284,11 +286,14 @@ class MovementsOutSheetExport implements
                         ->getNumberFormat()
                         ->setFormatCode('dd-mm-yyyy hh:mm');
 
-                    // I: Qty (tanpa desimal, rata kanan)
-                    $s->getStyle("I5:I{$maxRow}")
+                    $qtyIndex = array_search('Qty', $this->headings(), true);
+                    $qtyCol   = Coordinate::stringFromColumnIndex(($qtyIndex === false ? 10 : $qtyIndex + 1));
+
+                    // Qty (tanpa desimal, rata kanan)
+                    $s->getStyle("{$qtyCol}5:{$qtyCol}{$maxRow}")
                         ->getNumberFormat()
                         ->setFormatCode(NumberFormat::FORMAT_NUMBER);
-                    $s->getStyle("I5:I{$maxRow}")
+                    $s->getStyle("{$qtyCol}5:{$qtyCol}{$maxRow}")
                         ->getAlignment()
                         ->setHorizontal(Alignment::HORIZONTAL_RIGHT);
                 }
@@ -353,7 +358,7 @@ class MovementsInSheetExport implements
         return [
             'Tanggal',   // TANPA jam
             'Jenis',
-            'Supplier',
+            'Buyer',
             'No PO',
             'Kode',
             'Material',
@@ -365,7 +370,9 @@ class MovementsInSheetExport implements
 
     public function map($r): array
     {
-        $supplier = optional($r->supplier)->name ?? '';
+        $buyerName = optional($r->supplier)->name
+            ?: optional(optional($r->stock)->buyer)->name
+            ?: '';
         $code     = optional($r->stock)->material_code ?? '';
         $unit     = $r->unit ?? (optional($r->stock)->unit ?? '');
         $material = $r->material_name ?? (optional($r->stock)->material_name ?? $r->material);
@@ -373,7 +380,7 @@ class MovementsInSheetExport implements
         return [
             optional($r->moved_at)?->format('Y-m-d'), // TANPA jam
             $r->direction,
-            $supplier,
+            $buyerName,
             (string) $r->po_number,
             $code,
             $material,
@@ -400,7 +407,10 @@ class MovementsInSheetExport implements
 
     public function styles(Worksheet $sheet)
     {
-        $sheet->getStyle("A4:I4")->applyFromArray([
+        $lastColIndex = count($this->headings());
+        $lastCol      = Coordinate::stringFromColumnIndex($lastColIndex);
+
+        $sheet->getStyle("A4:{$lastCol}4")->applyFromArray([
             'font'      => ['bold' => true],
             'fill'      => [
                 'fillType'   => Fill::FILL_SOLID,
@@ -426,7 +436,8 @@ class MovementsInSheetExport implements
         return [
             AfterSheet::class => function (AfterSheet $e) {
                 $s       = $e->sheet->getDelegate();
-                $lastCol = 'I';
+                $lastColIndex = count($this->headings());
+                $lastCol      = Coordinate::stringFromColumnIndex($lastColIndex);
 
                 // Judul
                 $s->setCellValue('A1', 'LAPORAN PERGERAKAN STOK — PEMASUKAN (IN)');
@@ -456,7 +467,7 @@ class MovementsInSheetExport implements
 
                 // Info filter
                 $info = 'Jenis: IN'
-                    . ($this->supplierId ? " | Supplier ID: {$this->supplierId}" : '')
+                    . ($this->supplierId ? " | Buyer ID: {$this->supplierId}" : '')
                     . ($this->q ? " | Cari: {$this->q}" : '');
                 $s->setCellValue('A3', $info);
                 $s->mergeCells("A3:{$lastCol}3");
@@ -481,10 +492,13 @@ class MovementsInSheetExport implements
                         ->getNumberFormat()
                         ->setFormatCode('dd-mm-yyyy');
 
-                    $s->getStyle("H5:H{$maxRow}")
+                    $qtyIndex = array_search('Qty', $this->headings(), true);
+                    $qtyCol   = Coordinate::stringFromColumnIndex(($qtyIndex === false ? 9 : $qtyIndex + 1));
+
+                    $s->getStyle("{$qtyCol}5:{$qtyCol}{$maxRow}")
                         ->getNumberFormat()
                         ->setFormatCode(NumberFormat::FORMAT_NUMBER);
-                    $s->getStyle("H5:H{$maxRow}")
+                    $s->getStyle("{$qtyCol}5:{$qtyCol}{$maxRow}")
                         ->getAlignment()
                         ->setHorizontal(Alignment::HORIZONTAL_RIGHT);
                 }
