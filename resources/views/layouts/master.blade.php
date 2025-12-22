@@ -19,9 +19,13 @@
   <meta name="robots" content="noindex,nofollow,noarchive" />
 
   {{-- ====== FAVICON ====== --}}
-  @php($favicon = asset('icon.png') . '?v=' . @filemtime(public_path('icon.png')))
-  <link rel="icon" href="{{ $favicon }}" type="image/png" />
-  <link rel="shortcut icon" href="{{ $favicon }}" type="image/png" />
+  @php
+    $faviconPng = asset('icon.png') . '?v=' . @filemtime(public_path('icon.png'));
+    $faviconIco = asset('favicon.ico') . '?v=' . @filemtime(public_path('favicon.ico'));
+  @endphp
+  <link rel="icon" href="{{ $faviconIco }}" type="image/x-icon" />
+  <link rel="icon" href="{{ $faviconPng }}" type="image/png" />
+  <link rel="shortcut icon" href="{{ $faviconIco }}" type="image/x-icon" />
 
   {{-- ====== FONT AWESOME ====== --}}
   <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.2/css/all.css"
