@@ -269,7 +269,7 @@
       <div class="login-left">
         <div class="brand-row">
           <img src="{{ $logoUrl }}" alt="MMI Logo">
-          <div class="brand-name">MMI</div>
+          <div class="brand-name">MEGATAMA MAKMUR INDONESIA</div>
         </div>
 
         <h1 class="heading">
