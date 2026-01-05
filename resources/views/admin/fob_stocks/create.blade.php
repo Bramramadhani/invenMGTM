@@ -83,7 +83,7 @@
 
         <div class="row g-3 mt-3">
           <div class="col-md-2">
-            <label class="form-label">Unit <span class="text-danger">*</span></label>
+            <label class="form-label">Unit (Stok) <span class="text-danger">*</span></label>
             <input type="text" name="unit"
                    value="{{ old('unit') }}"
                    class="form-control @error('unit') is-invalid @enderror"
@@ -93,7 +93,20 @@
             @enderror
           </div>
 
-          <div class="col-md-3">
+          <div class="col-md-2">
+            <label class="form-label">Satuan Pembelian</label>
+            <select name="purchase_unit" id="purchaseUnit"
+                    class="form-select @error('purchase_unit') is-invalid @enderror">
+              <option value="unit" {{ old('purchase_unit', 'unit') === 'unit' ? 'selected' : '' }}>Satuan</option>
+              <option value="dozen" {{ old('purchase_unit') === 'dozen' ? 'selected' : '' }}>Lusin (12)</option>
+            </select>
+            @error('purchase_unit')
+              <div class="invalid-feedback">{{ $message }}</div>
+            @enderror
+            <div class="form-text">Pilih Lusin jika beli per 12 unit.</div>
+          </div>
+
+          <div class="col-md-2">
             <label class="form-label">Qty (Stok Masuk) <span class="text-danger">*</span></label>
             <input type="number" name="quantity" id="qtyInput"
                    value="{{ old('quantity') }}"
@@ -103,6 +116,7 @@
             @error('quantity')
               <div class="invalid-feedback">{{ $message }}</div>
             @enderror
+            <div class="form-text d-none" id="qtyConvertedHelp">Setara: 0 unit</div>
           </div>
 
           <div class="col-md-3">
@@ -116,11 +130,12 @@
               <div class="invalid-feedback">{{ $message }}</div>
             @enderror
             <div class="form-text">
-              Harga per 1 {{ old('unit') ?: 'unit' }} (contoh: 5000)
+              <span id="unitPriceHelp">Harga per 1 {{ old('unit') ?: 'unit' }} (contoh: 5000)</span>
             </div>
+            <div class="form-text d-none" id="unitPriceConvertedHelp"></div>
           </div>
 
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label">Total (otomatis)</label>
             <div class="input-group">
               <span class="input-group-text">Rp</span>
@@ -131,7 +146,7 @@
                      placeholder="0">
             </div>
             <div class="form-text">
-              Total = Qty × Harga Satuan (hanya tampilan, disimpan di history).
+              Total = Qty x Harga Satuan (hanya tampilan, disimpan di history).
             </div>
           </div>
         </div>
@@ -165,9 +180,14 @@
 @push('js')
 <script>
   (function () {
-    const qtyEl   = document.getElementById('qtyInput');
+    const qtyEl = document.getElementById('qtyInput');
     const priceEl = document.getElementById('unitPriceInput');
     const totalEl = document.getElementById('totalPriceDisplay');
+    const unitEl = document.querySelector('input[name="unit"]');
+    const purchaseUnitEl = document.getElementById('purchaseUnit');
+    const qtyHelpEl = document.getElementById('qtyConvertedHelp');
+    const unitPriceHelpEl = document.getElementById('unitPriceHelp');
+    const unitPriceConvertedEl = document.getElementById('unitPriceConvertedHelp');
 
     function toNumber(v) {
       if (!v) return 0;
@@ -181,18 +201,52 @@
       return n.toLocaleString('id-ID', { maximumFractionDigits: 2 });
     }
 
+    function getMultiplier() {
+      return purchaseUnitEl && purchaseUnitEl.value === 'dozen' ? 12 : 1;
+    }
+
     function updateTotal() {
-      const qty   = toNumber(qtyEl.value);
+      const qty = toNumber(qtyEl.value);
       const price = toNumber(priceEl.value);
-      const tot   = qty * price;
+      const tot = qty * price;
       totalEl.value = formatRupiah(tot);
     }
 
-    if (qtyEl)   qtyEl.addEventListener('input', updateTotal);
-    if (priceEl) priceEl.addEventListener('input', updateTotal);
+    function updateUnitHints() {
+      if (!unitPriceHelpEl || !qtyHelpEl || !unitPriceConvertedEl || !unitEl) return;
+
+      const unitLabel = unitEl.value ? unitEl.value : 'unit';
+      const multiplier = getMultiplier();
+      const qty = toNumber(qtyEl.value);
+      const price = toNumber(priceEl.value);
+
+      if (multiplier === 12) {
+        unitPriceHelpEl.textContent = `Harga per 1 lusin (12 ${unitLabel})`;
+        const qtyConverted = qty * multiplier;
+        const priceConverted = price > 0 ? price / multiplier : 0;
+        qtyHelpEl.textContent = `Setara: ${qtyConverted} ${unitLabel}`;
+        qtyHelpEl.classList.remove('d-none');
+        unitPriceConvertedEl.textContent = `Harga satuan setara: Rp ${formatRupiah(priceConverted)} / ${unitLabel}`;
+        unitPriceConvertedEl.classList.remove('d-none');
+      } else {
+        unitPriceHelpEl.textContent = `Harga per 1 ${unitLabel} (contoh: 5000)`;
+        qtyHelpEl.classList.add('d-none');
+        unitPriceConvertedEl.classList.add('d-none');
+      }
+    }
+
+    function handleChange() {
+      updateTotal();
+      updateUnitHints();
+    }
+
+    if (qtyEl) qtyEl.addEventListener('input', handleChange);
+    if (priceEl) priceEl.addEventListener('input', handleChange);
+    if (unitEl) unitEl.addEventListener('input', handleChange);
+    if (purchaseUnitEl) purchaseUnitEl.addEventListener('change', handleChange);
 
     // init nilai awal (misal dari old())
-    updateTotal();
+    handleChange();
   })();
 </script>
 @endpush

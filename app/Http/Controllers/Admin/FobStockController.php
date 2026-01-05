@@ -70,6 +70,7 @@ class FobStockController extends Controller
                 'material_code' => ['nullable', 'string', 'max:50'],
                 'material_name' => ['required', 'string', 'max:255'],
                 'unit'          => ['required', 'string', 'max:20'],
+                'purchase_unit' => ['nullable', 'in:unit,dozen'],
                 'quantity'      => ['required', 'numeric', 'min:0.0001'],
                 'unit_price'    => ['required', 'numeric', 'min:0'],
                 'reason'        => ['nullable', 'string', 'max:255'],
@@ -80,14 +81,19 @@ class FobStockController extends Controller
                 'vendor_name'   => 'Vendor / Toko',
                 'material_name' => 'Nama Material',
                 'unit'          => 'Unit',
+                'purchase_unit' => 'Satuan Pembelian',
                 'quantity'      => 'Qty',
                 'unit_price'    => 'Harga Satuan',
             ]
         );
 
         DB::transaction(function () use ($validatedData) {
-            $qty       = (float) $validatedData['quantity'];
-            $unitPrice = (float) $validatedData['unit_price'];
+            $purchaseUnit = $validatedData['purchase_unit'] ?? 'unit';
+            $multiplier   = $purchaseUnit === 'dozen' ? 12 : 1;
+            $qtyInput     = (float) $validatedData['quantity'];
+            $priceInput   = (float) $validatedData['unit_price'];
+            $qty          = $qtyInput * $multiplier;
+            $unitPrice    = $multiplier > 1 ? $priceInput / $multiplier : $priceInput;
             $userId    = auth()->id();
             $reason    = $validatedData['reason'] ?? null;
 
