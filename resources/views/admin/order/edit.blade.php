@@ -203,8 +203,14 @@
   // map existing items: stock_id => {qty, notes}
   const existing = {
     @foreach($order->items as $it)
+      @php
+        $unitRaw = strtolower(trim((string) $it->unit));
+        $qtyBase = in_array($unitRaw, ['lusin','lusinan','dozen','dz'], true)
+          ? ((float) $it->quantity * 12)
+          : (float) $it->quantity;
+      @endphp
       {{ (int)$it->stock_id }}: {
-        qty: {{ (float)$it->quantity }},
+        qty: {{ $qtyBase }},
         notes: {!! json_encode((string)($it->notes ?? '')) !!}
       },
     @endforeach

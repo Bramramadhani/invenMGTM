@@ -23,6 +23,24 @@
         return $s === '' ? '0' : $s;
       }
     }
+    if (!function_exists('fob_unit_multiplier')) {
+      function fob_unit_multiplier($unit) {
+        $u = strtolower(trim((string) $unit));
+        return in_array($u, ['lusin', 'lusinan', 'dozen', 'dz'], true) ? 12.0 : 1.0;
+      }
+    }
+    if (!function_exists('fob_alt_qty')) {
+      function fob_alt_qty($qty, $unit) {
+        $u = strtolower(trim((string) $unit));
+        if (in_array($u, ['pcs', 'pc', 'piece', 'pieces'], true)) {
+          return [(float) $qty / 12, 'Lusin'];
+        }
+        if (fob_unit_multiplier($unit) > 1) {
+          return [(float) $qty * fob_unit_multiplier($unit), 'PCS'];
+        }
+        return null;
+      }
+    }
   @endphp
 
   <div class="row g-3">
@@ -47,7 +65,13 @@
             <dd class="col-8">{{ $stock->unit ?? '—' }}</dd>
 
             <dt class="col-4">Qty Saat Ini</dt>
-            <dd class="col-8"><strong>{{ qty_fmt($stock->quantity) }}</strong></dd>
+            <dd class="col-8">
+              <strong>{{ qty_fmt($stock->quantity) }}</strong>
+              @php $altNow = fob_alt_qty($stock->quantity, $stock->unit); @endphp
+              @if($altNow)
+                <div class="small text-muted">{{ qty_fmt($altNow[0]) }} {{ $altNow[1] }}</div>
+              @endif
+            </dd>
           </dl>
         </div>
       </div>
@@ -76,6 +100,9 @@
                   @php
                     $diff = (float) $h->diff_quantity;
                     $diffClass = $diff > 0 ? 'text-success' : ($diff < 0 ? 'text-danger' : 'text-muted');
+                    $altOld = fob_alt_qty($h->old_quantity, $stock->unit);
+                    $altNew = fob_alt_qty($h->new_quantity, $stock->unit);
+                    $altDiff = fob_alt_qty($diff, $stock->unit);
                   @endphp
                   <tr>
                     <td class="text-center">{{ $i + 1 }}</td>
@@ -94,9 +121,24 @@
                         <span class="badge bg-secondary">{{ strtoupper($h->type) }}</span>
                       @endif
                     </td>
-                    <td class="text-end">{{ qty_fmt($h->old_quantity) }}</td>
-                    <td class="text-end">{{ qty_fmt($h->new_quantity) }}</td>
-                    <td class="text-end {{ $diffClass }}">{{ $diff > 0 ? '+' : '' }}{{ qty_fmt($diff) }}</td>
+                    <td class="text-end">
+                      {{ qty_fmt($h->old_quantity) }}
+                      @if($altOld)
+                        <div class="small text-muted">{{ qty_fmt($altOld[0]) }} {{ $altOld[1] }}</div>
+                      @endif
+                    </td>
+                    <td class="text-end">
+                      {{ qty_fmt($h->new_quantity) }}
+                      @if($altNew)
+                        <div class="small text-muted">{{ qty_fmt($altNew[0]) }} {{ $altNew[1] }}</div>
+                      @endif
+                    </td>
+                    <td class="text-end {{ $diffClass }}">
+                      {{ $diff > 0 ? '+' : '' }}{{ qty_fmt($diff) }}
+                      @if($altDiff)
+                        <div class="small text-muted">{{ $diff > 0 ? '+' : '' }}{{ qty_fmt($altDiff[0]) }} {{ $altDiff[1] }}</div>
+                      @endif
+                    </td>
                     <td>{{ optional($h->creator)->name ?? 'System' }}</td>
                     <td>{{ $h->reason ?? '—' }}</td>
                   </tr>

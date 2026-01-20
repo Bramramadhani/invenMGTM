@@ -31,6 +31,28 @@ class OrderController extends Controller
         };
     }
 
+    private function unitMultiplier(?string $unit): float
+    {
+        $u = strtolower(trim((string) $unit));
+        return in_array($u, ['lusin', 'lusinan', 'dozen', 'dz'], true) ? 12.0 : 1.0;
+    }
+
+    private function toBaseQty(float $qty, ?string $unit): float
+    {
+        return $qty * $this->unitMultiplier($unit);
+    }
+
+    private function fromBaseQty(float $qty, ?string $unit): float
+    {
+        $mult = $this->unitMultiplier($unit);
+        return $mult > 0 ? $qty / $mult : $qty;
+    }
+
+    private function displayUnit(?string $unit): string
+    {
+        return $this->unitMultiplier($unit) > 1 ? 'PCS' : (string) $unit;
+    }
+
     public function index(Request $request)
     {
         $q = trim((string) $request->get('q'));
@@ -134,19 +156,21 @@ class OrderController extends Controller
             'items' => $rows->map(function (Stock $s) use ($purchaseOrder) {
                 $supplierName  = optional($s->supplier)->name;
                 $buyerName     = optional($s->buyer)->name;
-                $sourceLabel   = $supplierName ?: ($buyerName ?: '—');
+                $sourceLabel   = $supplierName ?: ($buyerName ?: '-');
+                $displayUnit   = $this->displayUnit($s->unit);
+                $availableBase = $this->toBaseQty((float) $s->quantity, $s->unit);
 
                 return [
                     'stock_id'      => $s->id,
                     'material_code' => $s->material_code,
                     'material_name' => $s->material_name,
-                    'unit'          => $s->unit,
+                    'unit'          => $displayUnit,
                     'vendor_name'   => $s->vendor_name,
                     'supplier'      => $supplierName,
                     'buyer'         => $buyerName,
                     'source_label'  => $sourceLabel,
                     'po_number'     => $purchaseOrder->po_number,
-                    'available'     => (float) $s->quantity,
+                    'available'     => $availableBase,
                 ];
             }),
         ]);
@@ -172,19 +196,21 @@ class OrderController extends Controller
             'items' => $rows->map(function (Stock $s) {
                 $supplierName = optional($s->supplier)->name;
                 $buyerName    = optional($s->buyer)->name;
-                $sourceLabel  = $buyerName ?: ($supplierName ?: '—');
+                $sourceLabel  = $buyerName ?: ($supplierName ?: '-');
+                $displayUnit  = $this->displayUnit($s->unit);
+                $availableBase = $this->toBaseQty((float) $s->quantity, $s->unit);
 
                 return [
                     'stock_id'      => $s->id,
                     'material_code' => $s->material_code,
                     'material_name' => $s->material_name,
-                    'unit'          => $s->unit,
+                    'unit'          => $displayUnit,
                     'vendor_name'   => $s->vendor_name,
                     'supplier'      => $supplierName,
                     'buyer'         => $buyerName,
                     'source_label'  => $sourceLabel,
                     'po_number'     => optional($s->purchaseOrder)->po_number,
-                    'available'     => (float) $s->quantity,
+                    'available'     => $availableBase,
                 ];
             }),
         ]);
@@ -337,9 +363,12 @@ class OrderController extends Controller
                     ->lockForUpdate()
                     ->findOrFail($row['stock_id']);
 
-                $available = (float) $stock->quantity;
-                $qty       = (float) $row['quantity'];
-                $itemNote  = trim((string)($row['notes'] ?? ''));
+                $displayUnit   = $this->displayUnit($stock->unit);
+                $availableBase = $this->toBaseQty((float) $stock->quantity, $stock->unit);
+                $qtyInput      = (float) $row['quantity'];
+                $qtyBase       = $this->toBaseQty($qtyInput, $displayUnit);
+                $qtyStock      = $this->fromBaseQty($qtyBase, $stock->unit);
+                $itemNote      = trim((string)($row['notes'] ?? ''));
 
                 // supplier_id untuk dokumen (boleh null untuk FOB)
                 $supplierIdForDocs     = $stock->supplier_id;
@@ -371,9 +400,9 @@ class OrderController extends Controller
                 }
 
                 // Validasi qty hanya untuk item yang benar-benar dipakai
-                if ($qty <= 0 || $qty > $available) {
+                if ($qtyBase <= 0 || $qtyBase > $availableBase) {
                     throw ValidationException::withMessages([
-                        'items' => ["Qty tidak valid untuk {$stock->material_name} (tersedia: {$available})"],
+                        'items' => ["Qty tidak valid untuk {$stock->material_name} (tersedia: {$availableBase})"],
                     ]);
                 }
 
@@ -384,8 +413,8 @@ class OrderController extends Controller
                     'supplier_id'    => $supplierIdForDocs,
                     'material_code'  => $stock->material_code,
                     'material_name'  => $stock->material_name,
-                    'unit'           => $stock->unit,
-                    'quantity'       => $qty,
+                    'unit'           => $displayUnit,
+                    'quantity'       => $qtyBase,
                     'notes'          => $itemNote ?: null,
                     'created_at'     => $now,
                     'updated_at'     => $now,
@@ -399,15 +428,15 @@ class OrderController extends Controller
                     'supplier_id'         => $supplierIdForDocs,
                     'material_code'       => $stock->material_code,
                     'material_name'       => $stock->material_name,
-                    'unit'                => $stock->unit,
-                    'quantity'            => $qty,
+                    'unit'                => $displayUnit,
+                    'quantity'            => $qtyBase,
                     'notes'               => $itemNote ?: null,
                     'created_at'          => $now,
                     'updated_at'          => $now,
                 ]);
 
                 // c) Kurangi stok
-                $stock->decrement('quantity', $qty);
+                $stock->decrement('quantity', $qtyStock);
 
                 // d) Movement OUT
                 // Untuk kedua mode, poNumber di movement diarahkan ke PO dari Style (target produksi)
@@ -417,8 +446,8 @@ class OrderController extends Controller
                     stockId:     $stock->id,
                     supplierId:  $supplierIdForMovement,
                     material:    $stock->material_name,
-                    unit:        $stock->unit,
-                    qty:         (float) $qty,
+                    unit:        $displayUnit,
+                    qty:         (float) $qtyBase,
                     poNumber:    $poNumberForMovement ?: null,
                     notes:       $itemNote ?: null,
                     movedAt:     $now,
@@ -589,8 +618,9 @@ class OrderController extends Controller
             foreach ($order->items as $it) {
                 $before[(int) $it->stock_id] = [
                     'id'    => $it->id,
-                    'qty'   => (float) $it->quantity,
-                    'notes' => (string) ($it->notes ?? ''),
+                    'qty_base' => $this->toBaseQty((float) $it->quantity, $it->unit),
+                    'unit'     => $it->unit,
+                    'notes'    => (string) ($it->notes ?? ''),
                 ];
             }
 
@@ -608,8 +638,8 @@ class OrderController extends Controller
                 }
 
                 $after[$sid] = [
-                    'qty'   => $qty,
-                    'notes' => $note,
+                    'qty_input' => $qty,
+                    'notes'     => $note,
                 ];
             }
 
@@ -663,8 +693,9 @@ class OrderController extends Controller
                     throw ValidationException::withMessages(['items' => 'Stok tidak ditemukan.']);
                 }
 
-                $newQty  = (float) $newRow['qty'];
-                $newNote = $newRow['notes'];
+                $displayUnit = $this->displayUnit($st->unit);
+                $newQtyBase  = $this->toBaseQty((float) $newRow['qty_input'], $displayUnit);
+                $newNote     = $newRow['notes'];
 
                 $supplierIdForDocs     = $st->supplier_id;
                 $supplierIdForMovement = (int) ($st->supplier_id ?? 0);
@@ -673,25 +704,28 @@ class OrderController extends Controller
                     // UPDATE item (ada sebelumnya)
                     $old    = $before[$sid];
                     $itemId = (int) $old['id'];
-                    $oldQty = (float) $old['qty'];
-                    $delta  = $newQty - $oldQty;
+                    $oldQtyBase = (float) $old['qty_base'];
+                    $deltaBase  = $newQtyBase - $oldQtyBase;
+                    $deltaStock = $this->fromBaseQty($deltaBase, $st->unit);
 
-                    if ($delta > 0) {
+                    if ($deltaStock > 0) {
                         // butuh stok tambahan
-                        if ($st->quantity < $delta) {
+                        $availableBase = $this->toBaseQty((float) $st->quantity, $st->unit);
+                        if ($st->quantity < $deltaStock) {
                             throw ValidationException::withMessages([
-                                'items' => ["Qty {$st->material_name} melebihi sisa stok (tersedia: {$st->quantity})."],
+                                'items' => ["Qty {$st->material_name} melebihi sisa stok (tersedia: {$availableBase})."],
                             ]);
                         }
-                        $st->decrement('quantity', $delta);
-                    } elseif ($delta < 0) {
+                        $st->decrement('quantity', $deltaStock);
+                    } elseif ($deltaStock < 0) {
                         // kembalikan sisa ke stok
-                        $st->increment('quantity', abs($delta));
+                        $st->increment('quantity', abs($deltaStock));
                     }
 
                     // Update OrderItem
                     OrderItem::whereKey($itemId)->update([
-                        'quantity'   => $newQty,
+                        'unit'       => $displayUnit,
+                        'quantity'   => $newQtyBase,
                         'notes'      => $newNote ?: null,
                         'updated_at' => $now,
                     ]);
@@ -700,7 +734,8 @@ class OrderController extends Controller
                     ProductionIssueItem::where('order_item_id', $itemId)
                         ->where('production_issue_id', $issue->id)
                         ->update([
-                            'quantity'   => $newQty,
+                            'unit'       => $displayUnit,
+                            'quantity'   => $newQtyBase,
                             'notes'      => $newNote ?: null,
                             'updated_at' => $now,
                         ]);
@@ -713,7 +748,8 @@ class OrderController extends Controller
 
                     if ($mov) {
                         $mov->update([
-                            'quantity'   => $newQty,
+                            'unit'       => $displayUnit,
+                            'quantity'   => $newQtyBase,
                             'notes'      => $newNote ?: null,
                             'updated_at' => $now,
                         ]);
@@ -725,8 +761,8 @@ class OrderController extends Controller
                             stockId:     $st->id,
                             supplierId:  $supplierIdForMovement,
                             material:    $st->material_name,
-                            unit:        $st->unit,
-                            qty:         (float) $newQty,
+                            unit:        $displayUnit,
+                            qty:         (float) $newQtyBase,
                             poNumber:    $poNumberForMovement ?: null,
                             notes:       $newNote ?: null,
                             movedAt:     $now,
@@ -736,9 +772,11 @@ class OrderController extends Controller
                     }
                 } else {
                     // ADD item baru
-                    if ($st->quantity < $newQty) {
+                    $newQtyStock = $this->fromBaseQty($newQtyBase, $st->unit);
+                    if ($st->quantity < $newQtyStock) {
+                        $availableBase = $this->toBaseQty((float) $st->quantity, $st->unit);
                         throw ValidationException::withMessages([
-                            'items' => ["Qty {$st->material_name} melebihi sisa stok (tersedia: {$st->quantity})."],
+                            'items' => ["Qty {$st->material_name} melebihi sisa stok (tersedia: {$availableBase})."],
                         ]);
                     }
 
@@ -749,8 +787,8 @@ class OrderController extends Controller
                         'supplier_id'    => $supplierIdForDocs,
                         'material_code'  => $st->material_code,
                         'material_name'  => $st->material_name,
-                        'unit'           => $st->unit,
-                        'quantity'       => $newQty,
+                        'unit'           => $displayUnit,
+                        'quantity'       => $newQtyBase,
                         'notes'          => $newNote ?: null,
                         'created_at'     => $now,
                         'updated_at'     => $now,
@@ -764,15 +802,15 @@ class OrderController extends Controller
                         'supplier_id'         => $supplierIdForDocs,
                         'material_code'       => $st->material_code,
                         'material_name'       => $st->material_name,
-                        'unit'                => $st->unit,
-                        'quantity'            => $newQty,
+                        'unit'                => $displayUnit,
+                        'quantity'            => $newQtyBase,
                         'notes'               => $newNote ?: null,
                         'created_at'          => $now,
                         'updated_at'          => $now,
                     ]);
 
                     // c) kurangi stok
-                    $st->decrement('quantity', $newQty);
+                    $st->decrement('quantity', $newQtyStock);
 
                     // d) Movement OUT baru
                     $poNumberForMovement = optional($po)->po_number ?? optional($st->purchaseOrder)->po_number;
@@ -781,8 +819,8 @@ class OrderController extends Controller
                         stockId:     $st->id,
                         supplierId:  $supplierIdForMovement,
                         material:    $st->material_name,
-                        unit:        $st->unit,
-                        qty:         (float) $newQty,
+                        unit:        $displayUnit,
+                        qty:         (float) $newQtyBase,
                         poNumber:    $poNumberForMovement ?: null,
                         notes:       $newNote ?: null,
                         movedAt:     $now,
@@ -805,10 +843,11 @@ class OrderController extends Controller
                 }
 
                 $itemId = (int) $old['id'];
-                $oldQty = (float) $old['qty'];
+                $oldQtyBase = (float) $old['qty_base'];
+                $oldQtyStock = $this->fromBaseQty($oldQtyBase, $st->unit);
 
                 // kembalikan stok
-                $st->increment('quantity', $oldQty);
+                $st->increment('quantity', $oldQtyStock);
 
                 // hapus movement OUT
                 StockMovement::where('order_item_id', $itemId)
@@ -846,7 +885,9 @@ class OrderController extends Controller
                 // 1) Kembalikan stok
                 foreach ($order->items as $item) {
                     if ($item->stock) {
-                        $item->stock->increment('quantity', (float) $item->quantity);
+                        $qtyBase  = $this->toBaseQty((float) $item->quantity, $item->unit);
+                        $qtyStock = $this->fromBaseQty($qtyBase, $item->stock->unit);
+                        $item->stock->increment('quantity', $qtyStock);
                     }
                 }
 

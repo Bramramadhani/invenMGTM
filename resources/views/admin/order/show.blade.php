@@ -13,7 +13,12 @@
     };
 
     $itemCount = $order->items->count();
-    $totalQty  = $order->items->sum('quantity');
+    $lusinUnits = ['lusin','lusinan','dozen','dz'];
+    $totalQty  = $order->items->sum(function ($it) use ($lusinUnits) {
+      $unitRaw = strtolower(trim((string) $it->unit));
+      $mult = in_array($unitRaw, $lusinUnits, true) ? 12 : 1;
+      return (float) $it->quantity * $mult;
+    });
 
     // Style dari relasi ke PurchaseOrderStyle
     $style = optional($order->purchaseOrderStyle ?? null);
@@ -205,12 +210,16 @@
                 $buyerNameRow = optional($stock?->buyer)->name;
                 $sourceCell   = $supplierName ?: $buyerNameRow ?: '—';
                 $vendorCell   = $stock?->vendor_name ?: '—';
+                $unitRaw      = strtolower(trim((string) $it->unit));
+                $mult         = in_array($unitRaw, $lusinUnits, true) ? 12 : 1;
+                $displayUnit  = $mult > 1 ? 'PCS' : $it->unit;
+                $displayQty   = (float) $it->quantity * $mult;
               @endphp
               <tr>
                 <td>{{ $loop->iteration }}</td>
                 <td>{{ $it->material_code ?: '—' }}</td>
                 <td class="fw-semibold text-start">{{ $it->material_name }}</td>
-                <td>{{ $it->unit }}</td>
+                <td>{{ $displayUnit }}</td>
                 <td class="text-start">{{ $sourceCell }}</td>
                 @if($isFobOrder)
                   <td class="text-start">{{ $vendorCell }}</td>
@@ -224,7 +233,7 @@
                     —
                   @endif
                 </td>
-                <td>{{ fmt_number($it->quantity) }}</td>
+                <td>{{ fmt_number($displayQty) }}</td>
                 <td class="text-start">{{ $it->notes ?: '—' }}</td>
               </tr>
             @empty

@@ -55,6 +55,24 @@
         return $s === '' ? '0' : $s;
       }
     }
+    if (!function_exists('fob_unit_multiplier')) {
+      function fob_unit_multiplier($unit) {
+        $u = strtolower(trim((string) $unit));
+        return in_array($u, ['lusin', 'lusinan', 'dozen', 'dz'], true) ? 12.0 : 1.0;
+      }
+    }
+    if (!function_exists('fob_alt_qty')) {
+      function fob_alt_qty($qty, $unit) {
+        $u = strtolower(trim((string) $unit));
+        if (in_array($u, ['pcs', 'pc', 'piece', 'pieces'], true)) {
+          return [(float) $qty / 12, 'Lusin'];
+        }
+        if (fob_unit_multiplier($unit) > 1) {
+          return [(float) $qty * fob_unit_multiplier($unit), 'PCS'];
+        }
+        return null;
+      }
+    }
   @endphp
 
   <div class="card">
@@ -93,7 +111,13 @@
                 <td>{{ $s->material_code ?: '—' }}</td>
                 <td>{{ $s->material_name }}</td>
                 <td class="text-center">{{ $s->unit }}</td>
-                <td class="text-end">{{ qty_fmt($s->quantity) }}</td>
+                <td class="text-end">
+                  {{ qty_fmt($s->quantity) }}
+                  @php $alt = fob_alt_qty($s->quantity, $s->unit); @endphp
+                  @if($alt)
+                    <div class="small text-muted">{{ qty_fmt($alt[0]) }} {{ $alt[1] }}</div>
+                  @endif
+                </td>
                 <td class="text-center">
                   <a href="{{ route('admin.fob-stocks.history', $s->id) }}" class="btn btn-sm btn-outline-secondary me-1">
                     <i class="fas fa-info-circle"></i> Detail
