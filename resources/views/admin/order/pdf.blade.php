@@ -24,12 +24,13 @@
 
   $sourceType  = $order->source_type ?? 'po';
   $sourceLabel = match ($sourceType) {
-    'fob', 'fob_full' => 'Stok FOB (Buyer) — terkait PO/Style',
-    default    => 'Stok PO / Buyer',
+    'fob', 'fob_full' => 'Stok FOB (Buyer) terkait PO/Style',
+    'mixed'          => 'Campuran (PO + FOB)',
+    default          => 'Stok PO / Buyer',
   };
   $buyerName   = optional($order->buyer)->name;
 
-  $isFobOrder  = ($sourceType === 'fob');
+  $showVendorCol  = in_array($sourceType, ['fob', 'mixed'], true);
   $targetPoNo  = optional(optional($style)->purchaseOrder)->po_number;
 @endphp
 <!DOCTYPE html>
@@ -188,11 +189,16 @@
       @forelse($order->items as $i => $row)
         @php
           $stock        = $row->stock;
+          $isFobItem    = !is_null($stock?->buyer_id);
           $supplierName = optional($stock?->supplier)->name;
           $buyerNameRow = optional($stock?->buyer)->name;
           $sourceLabel  = $supplierName ?: $buyerNameRow;
           $vendor       = $stock?->vendor_name;
-          $po           = $isFobOrder ? $targetPoNo : optional($stock?->purchaseOrder)->po_number;
+          $po           = $isFobItem ? $targetPoNo : optional($stock?->purchaseOrder)->po_number;
+          if (!$isFobItem && empty($po) && is_null($stock?->purchase_order_id)) {
+            $po = 'GLOBAL';
+          }
+          $poLabel = $isFobItem ? 'PO target' : 'PO stok';
         @endphp
         <tr>
           <td>{{ $i+1 }}</td>
@@ -203,8 +209,8 @@
           <td>
             @if($sourceLabel || $po)
               @if($sourceLabel) <div>{{ $sourceLabel }}</div> @endif
-              @if($isFobOrder && !empty($vendor)) <div class="small">Vendor: {{ $vendor }}</div> @endif
-              @if($po) <div class="small">PO stok: {{ $po }}</div> @endif
+              @if($isFobItem && !empty($vendor)) <div class="small">Vendor: {{ $vendor }}</div> @endif
+              @if($po) <div class="small">{{ $poLabel }}: {{ $po }}</div> @endif
             @else
               —
             @endif

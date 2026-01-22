@@ -82,23 +82,66 @@ class PurchaseOrderRejectController extends Controller
                         Log::warning('Stok tidak ditemukan, membuat stok baru', ['stock_id' => $stock->id]);
                     }
 
-                    // Pastikan stok cukup
-                    if ((float)$stock->quantity < $qty) {
-                        throw new \Exception("Stok tidak cukup untuk reject {$item->material_name} (tersedia {$stock->quantity})");
+                    $remainingQty = $qty;
+                    $stockIdForReject = $stock->id;
+
+                    $availablePo = (float) $stock->quantity;
+                    if ($availablePo > 0) {
+                        $takePo = min($availablePo, $remainingQty);
+                        if ($takePo > 0) {
+                            $stock->decrement('quantity', $takePo);
+                            $stock->update([
+                                'last_po_id'     => $purchaseOrder->id,
+                                'last_po_number' => $purchaseOrder->po_number,
+                            ]);
+                            $remainingQty -= $takePo;
+                        }
                     }
 
-                    // Kurangi stok
-                    $stock->decrement('quantity', $qty);
-                    $stock->update([
-                        'last_po_id'     => $purchaseOrder->id,
-                        'last_po_number' => $purchaseOrder->po_number,
-                    ]);
+                    if ($remainingQty > 0) {
+                        // Ambil dari stok global (over-receive)
+                        $globalStock = null;
+
+                        if (!empty($item->material_code)) {
+                            $globalStock = Stock::whereNull('purchase_order_id')
+                                ->whereNull('buyer_id')
+                                ->where('supplier_id', $purchaseOrder->supplier_id ?? null)
+                                ->whereRaw('UPPER(material_code) = ?', [strtoupper(trim($item->material_code))])
+                                ->lockForUpdate()
+                                ->first();
+                        }
+
+                        if (!$globalStock) {
+                            $globalStock = Stock::whereNull('purchase_order_id')
+                                ->whereNull('buyer_id')
+                                ->where('supplier_id', $purchaseOrder->supplier_id ?? null)
+                                ->whereRaw('LOWER(material_name) = ?', [strtolower(trim($item->material_name))])
+                                ->whereRaw('LOWER(unit) = ?', [strtolower(trim($item->unit))])
+                                ->lockForUpdate()
+                                ->first();
+                        }
+
+                        if (!$globalStock || (float) $globalStock->quantity < $remainingQty) {
+                            $availableGlobal = $globalStock ? (float) $globalStock->quantity : 0;
+                            throw new \Exception("Stok global tidak cukup untuk reject {$item->material_name} (tersedia {$availableGlobal})");
+                        }
+
+                        $globalStock->decrement('quantity', $remainingQty);
+                        $globalStock->update([
+                            'last_po_id'     => $purchaseOrder->id,
+                            'last_po_number' => $purchaseOrder->po_number,
+                        ]);
+
+                        if ($availablePo <= 0) {
+                            $stockIdForReject = $globalStock->id;
+                        }
+                    }
 
                     // Simpan data reject
                     PurchaseOrderReject::create([
                         'purchase_order_id'       => $purchaseOrder->id,
                         'purchase_order_item_id'  => $item->id,
-                        'stock_id'                => $stock->id,
+                        'stock_id'                => $stockIdForReject,
                         'supplier_id'             => $purchaseOrder->supplier_id ?? null,
                         'material_name'           => $item->material_name,
                         'unit'                    => $item->unit,

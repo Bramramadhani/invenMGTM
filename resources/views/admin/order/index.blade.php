@@ -69,7 +69,9 @@
                 $sourceType  = $o->source_type ?? 'po';
                 $sourceLabel = $sourceType === 'fob'
                   ? 'Stok FOB' . (optional($o->buyer)->name ? ' ('.optional($o->buyer)->name.')' : '')
-                  : 'Stok PO / Buyer';
+                  : ($sourceType === 'mixed'
+                    ? 'Campuran (PO + FOB)' . (optional($o->buyer)->name ? ' ('.optional($o->buyer)->name.')' : '')
+                    : 'Stok PO / Buyer');
               @endphp
               <tr>
                 <td class="fw-semibold text-center">{{ $o->name ?? '—' }}</td>

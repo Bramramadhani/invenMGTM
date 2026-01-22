@@ -25,12 +25,13 @@
 
     $sourceType  = $order->source_type ?? 'po';
     $sourceLabel = match ($sourceType) {
-      'fob', 'fob_full' => 'Stok FOB (Buyer) — terkait PO/Style',
-      default    => 'Stok PO / Buyer',
+      'fob', 'fob_full' => 'Stok FOB (Buyer) terkait PO/Style',
+      'mixed'          => 'Campuran (PO + FOB)',
+      default          => 'Stok PO / Buyer',
     };
     $buyer       = $order->buyer;
 
-    $isFobOrder = ($sourceType === 'fob');
+    $showVendorCol = in_array($sourceType, ['fob', 'mixed'], true);
     $targetPo   = optional($style)->purchaseOrder;
     $targetPoId = optional($targetPo)->id;
     $targetPoNo = optional($targetPo)->po_number;
@@ -187,10 +188,10 @@
               <th>Material</th>
               <th style="width:90px">Unit</th>
               <th style="width:180px">Supplier / Buyer</th>
-              @if($isFobOrder)
+              @if($showVendorCol)
                 <th style="width:160px">Vendor / Toko</th>
               @endif
-              <th style="width:160px">{{ $isFobOrder ? 'No. PO (Target)' : 'No. PO (Stok)' }}</th>
+              <th style="width:160px">{{ $sourceType === 'fob' ? 'No. PO (Target)' : ($sourceType === 'mixed' ? 'No. PO' : 'No. PO (Stok)') }}</th>
               <th style="width:140px">Qty Diminta</th>
               <th>Catatan Item</th>
             </tr>
@@ -199,17 +200,20 @@
             @forelse ($order->items as $it)
               @php
                 $stock        = $it->stock;
+                $isFobItem    = !is_null($stock?->buyer_id);
                 $po           = optional($stock?->purchaseOrder);
                 $poId         = $po->id ?? null;
                 $poNo         = $po->po_number ?? null;
-                if ($isFobOrder) {
+                if ($isFobItem) {
                     $poId = $targetPoId;
                     $poNo = $targetPoNo;
+                } elseif ($poId === null && is_null($stock?->purchase_order_id)) {
+                    $poNo = 'GLOBAL';
                 }
                 $supplierName = optional($stock?->supplier)->name;
                 $buyerNameRow = optional($stock?->buyer)->name;
-                $sourceCell   = $supplierName ?: $buyerNameRow ?: '—';
-                $vendorCell   = $stock?->vendor_name ?: '—';
+                $sourceCell   = $supplierName ?: $buyerNameRow ?: '-';
+                $vendorCell   = $isFobItem ? ($stock?->vendor_name ?: '-') : '-';
                 $unitRaw      = strtolower(trim((string) $it->unit));
                 $mult         = in_array($unitRaw, $lusinUnits, true) ? 12 : 1;
                 $displayUnit  = $mult > 1 ? 'PCS' : $it->unit;
@@ -221,7 +225,7 @@
                 <td class="fw-semibold text-start">{{ $it->material_name }}</td>
                 <td>{{ $displayUnit }}</td>
                 <td class="text-start">{{ $sourceCell }}</td>
-                @if($isFobOrder)
+                @if($showVendorCol)
                   <td class="text-start">{{ $vendorCell }}</td>
                 @endif
                 <td>
@@ -230,7 +234,7 @@
                       {{ $poNo ?: 'PO #'.$poId }}
                     </a>
                   @else
-                    —
+                    {{ $poNo ?: '-' }}
                   @endif
                 </td>
                 <td>{{ fmt_number($displayQty) }}</td>
@@ -238,7 +242,7 @@
               </tr>
             @empty
               <tr>
-                <td colspan="{{ $isFobOrder ? 9 : 8 }}" class="text-center text-muted">Tidak ada item.</td>
+                <td colspan="{{ $showVendorCol ? 9 : 8 }}" class="text-center text-muted">Tidak ada item.</td>
               </tr>
             @endforelse
           </tbody>

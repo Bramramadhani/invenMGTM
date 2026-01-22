@@ -21,11 +21,12 @@
           <span class="small text-muted">Sumber Stok:</span>
           @php
             $oldSourceType = old('source_type', 'po');
-            $oldSourceType = $oldSourceType === 'fob' ? 'fob' : 'po';
+            $oldSourceType = in_array($oldSourceType, ['fob', 'mixed'], true) ? $oldSourceType : 'po';
           @endphp
           <select name="source_type" id="sourceType" class="form-select form-select-sm" style="width:auto;">
             <option value="po"  {{ $oldSourceType === 'po'  ? 'selected' : '' }}>Stok PO / Buyer</option>
             <option value="fob" {{ $oldSourceType === 'fob' ? 'selected' : '' }}>Stok FOB </option>
+            <option value="mixed" {{ $oldSourceType === 'mixed' ? 'selected' : '' }}>Campuran (PO + FOB)</option>
           </select>
         </div>
       </div>
@@ -230,6 +231,8 @@
   const selTotalEl        = document.getElementById('selTotal');
 
   let targetPoNumber = '';
+  let poItems = [];
+  let fobItems = [];
 
   function getSourceType() {
     return sourceTypeSelect ? (sourceTypeSelect.value || 'po') : 'po';
@@ -239,63 +242,35 @@
     const type = getSourceType();
 
     const isFob = (type === 'fob');
-    const isFobFull = (type === 'fob_full'); // legacy (opsi ini sudah dihapus dari UI)
+    const isMixed = (type === 'mixed');
+    const isFobLike = isFob || isMixed;
 
     // Buyer (FOB)
-    if (rowBuyer) rowBuyer.style.display = isFob ? '' : 'none';
-    if (buyerRequiredMark) buyerRequiredMark.style.display = isFob ? '' : 'none';
+    if (rowBuyer) rowBuyer.style.display = isFobLike ? '' : 'none';
+    if (buyerRequiredMark) buyerRequiredMark.style.display = isFobLike ? '' : 'none';
     if (buyerHelp) {
-      buyerHelp.textContent = isFob
+      buyerHelp.textContent = isFobLike
         ? 'Pilih Buyer yang stok-nya akan dipakai (FOB).'
         : 'Pilih Buyer jika sumber stok adalah FOB.';
     }
-    if (!isFob && buyerSelect) buyerSelect.value = '';
+    if (!isFobLike && buyerSelect) buyerSelect.value = '';
+    if (buyerSelect) buyerSelect.required = isFobLike;
 
-    // Vendor/Toko hanya untuk mode FOB
+    // Vendor/Toko hanya untuk mode FOB / Mixed
     if (stocksTable) {
-      stocksTable.classList.toggle('mode-fob', isFob);
-      stocksTable.classList.toggle('mode-po', !isFob);
+      stocksTable.classList.toggle('mode-fob', isFobLike);
+      stocksTable.classList.toggle('mode-po', type === 'po');
     }
 
     // Label kolom PO: untuk FOB tampilkan target PO (bukan PO stok)
     if (thPoNumber) {
-      thPoNumber.textContent = isFob ? 'No. PO (Target)' : 'No. PO (Stok)';
-    }
-
-    // PO & Style controls: untuk FULL FOB disembunyikan & tidak wajib
-    if (colSupplier) colSupplier.style.display = isFobFull ? 'none' : '';
-    if (colPO) colPO.style.display = isFobFull ? 'none' : '';
-    if (colStyle) colStyle.style.display = isFobFull ? 'none' : '';
-
-    if (supplierSelect) {
-      supplierSelect.disabled = isFobFull;
-      supplierSelect.required = !isFobFull;
-      if (isFobFull) supplierSelect.value = '';
-    }
-    if (poSelect) {
-      if (isFobFull) {
-        poSelect.disabled = true;
-        poSelect.required = false;
-        poSelect.innerHTML = '<option value="">— Pilih PO —</option>';
-      } else {
-        poSelect.required = true;
-      }
-    }
-    if (styleSelect) {
-      if (isFobFull) {
-        styleSelect.value = '';
-        styleSelect.disabled = true;
-        styleSelect.required = false;
-      }
-    }
-    if (styleHelp) {
-      styleHelp.style.display = isFobFull ? 'none' : '';
+      thPoNumber.textContent = isFob ? 'No. PO (Target)' : (isMixed ? 'No. PO' : 'No. PO (Stok)');
     }
 
     if (stocksTitle) {
       stocksTitle.textContent = isFob
         ? 'Stok Tersedia (FOB / Buyer)'
-        : 'Stok Tersedia (per-PO)';
+        : (isMixed ? 'Stok Tersedia (PO + FOB)' : 'Stok Tersedia (per-PO)');
     }
   }
 
@@ -322,13 +297,16 @@
     poSelect.disabled = true;
     resetTable();
     resetStyles();
+    targetPoNumber = '';
+    poItems = [];
+    fobItems = [];
 
     if (!supplierId) return;
 
     const type = getSourceType();
     let url = urlSupplierPOsTpl.replace('__ID__', encodeURIComponent(supplierId));
 
-    if (type === 'fob') {
+    if (type === 'fob' || type === 'mixed') {
       // Untuk FOB, tambahkan mode=fob supaya server mengembalikan semua PO supplier tsb (target Style)
       url += (url.indexOf('?') === -1 ? '?' : '&') + 'mode=fob';
     }
@@ -352,26 +330,35 @@
     targetPoNumber = this.options?.[this.selectedIndex]?.textContent?.trim() || '';
     resetTable();
     resetStyles();
+    poItems = [];
     if (!poId) return;
 
     const type = getSourceType();
 
-    // Mode PO: stok diambil dari stok per-PO
     if (type === 'po') {
       await loadPoStocks(poId);
+    } else if (type === 'mixed') {
+      await loadPoStocks(poId);
+      if (buyerSelect && buyerSelect.value) {
+        await loadBuyerStocks(buyerSelect.value);
+      }
+    } else if (type === 'fob') {
+      if (buyerSelect && buyerSelect.value) {
+        await loadBuyerStocks(buyerSelect.value);
+      }
     }
 
     // Kedua mode: Style tetap mengikuti PO sebagai target produksi
     await loadPoStyles(poId);
   });
 
-  // Load stok FOB saat Buyer berubah (hanya jika mode FOB)
+  // Load stok FOB saat Buyer berubah (mode FOB / Mixed)
   if (buyerSelect) {
     buyerSelect.addEventListener('change', async function(){
       resetTable();
       const buyerId = this.value;
       const type = getSourceType();
-      if (type !== 'fob' || !buyerId) return;
+      if ((type !== 'fob' && type !== 'mixed') || !buyerId) return;
       await loadBuyerStocks(buyerId);
     });
   }
@@ -384,7 +371,18 @@
       return;
     }
     const data = await res.json();
-    renderStockRows(data.items || []);
+    const items = data.items || [];
+    items.forEach(it => {
+      if (!it.source_type) it.source_type = 'po';
+    });
+
+    if (getSourceType() === 'mixed') {
+      poItems = items;
+      renderStockRows([...poItems, ...fobItems]);
+      return;
+    }
+
+    renderStockRows(items);
   }
 
   async function loadBuyerStocks(buyerId) {
@@ -396,10 +394,21 @@
     }
     const data = await res.json();
     // Sumber stok FOB tidak punya PO di stock-nya; tampilkan PO TARGET (yang dipilih di atas)
-    (data.items || []).forEach(it => {
-      it.po_number = targetPoNumber;
+    const items = data.items || [];
+    items.forEach(it => {
+      if (!it.source_type) it.source_type = 'fob';
+      if (targetPoNumber) {
+        it.po_number = targetPoNumber;
+      }
     });
-    renderStockRows(data.items || []);
+
+    if (getSourceType() === 'mixed') {
+      fobItems = items;
+      renderStockRows([...poItems, ...fobItems]);
+      return;
+    }
+
+    renderStockRows(items);
   }
 
   async function loadPoStyles(poId) {
@@ -438,26 +447,27 @@
   function renderStockRows(items) {
     resetTable();
 
-    const type = getSourceType();
-
     items.forEach((row, idx) => {
       const tr = document.createElement('tr');
-      const poDisplay = type === 'fob'
-        ? (targetPoNumber || row.po_number || '—')
-        : (row.po_number || '—');
-      const sourceLabel = row.source_label || row.supplier || row.buyer || '—';
+      const rowType = row.source_type || (row.buyer_id ? 'fob' : 'po');
+      const isFobRow = rowType === 'fob';
+      const poDisplay = isFobRow
+        ? (targetPoNumber || row.po_number || '-')
+        : (row.po_number || '-');
+      const sourceLabel = row.source_label || row.supplier || row.buyer || '-';
+      const vendorDisplay = isFobRow && row.vendor_name ? row.vendor_name : '-';
 
       tr.innerHTML = `
         <td class="text-center">
           <input type="checkbox" class="chkRow">
           <input type="hidden" class="hidStockId">
         </td>
-        <td>${row.material_code ? row.material_code : '—'}</td>
+        <td>${row.material_code ? row.material_code : '-'}</td>
         <td class="fw-semibold">${row.material_name}</td>
         <td>${row.unit ?? ''}</td>
         <td class="text-start">${sourceLabel}</td>
-        <td class="text-start">${row.vendor_name ? row.vendor_name : '—'}</td>
-        <td class="text-center">${row.po_number ?? '—'}</td>
+        <td class="text-start">${vendorDisplay}</td>
+        <td class="text-center">${poDisplay}</td>
         <td class="text-end availCell">${formatNumber(row.available)}</td>
         <td>
           <input type="number" min="0" step="0.0001" class="form-control text-end qtyInput" placeholder="0" disabled data-avail="${row.available}">
@@ -505,6 +515,7 @@
     updateSummary();
   }
 
+
   chkHeader.addEventListener('change', () => {
     tblBody.querySelectorAll('.chkRow').forEach(chk => {
       if (chk.checked !== chkHeader.checked) chk.click();
@@ -532,7 +543,7 @@
       return;
     }
 
-    if (type === 'fob') {
+    if (type === 'fob' || type === 'mixed') {
       if (!buyerSelect || !buyerSelect.value) {
         e.preventDefault();
         alert('Silakan pilih Buyer untuk permintaan dari stok FOB.');
@@ -595,6 +606,10 @@
       poSelect.disabled    = true;
       resetStyles();
       resetTable();
+      targetPoNumber = '';
+      poItems = [];
+      fobItems = [];
+      if (buyerSelect) buyerSelect.value = '';
       applySourceTypeUI();
     });
   }

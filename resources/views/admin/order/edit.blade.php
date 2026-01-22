@@ -16,7 +16,7 @@
 
     {{-- Hidden info source_type & buyer untuk JS --}}
     <input type="hidden" id="sourceType" value="{{ $order->source_type ?? 'po' }}">
-    @if(($order->source_type ?? 'po') === 'fob' && $order->buyer)
+    @if(in_array($order->source_type ?? 'po', ['fob', 'mixed'], true) && $order->buyer)
       <input type="hidden" id="urlBuyerStocks" value="{{ route('admin.orders.buyer-stocks', ['buyer' => $order->buyer->id]) }}">
     @endif
 
@@ -51,10 +51,12 @@
           <div class="col-md-4">
             <label class="form-label">Sumber Stok</label>
             <input class="form-control"
-                   value="{{ ($order->source_type ?? 'po') === 'fob' ? 'Stok FOB (Buyer)' : 'Stok PO / Buyer' }}"
+                   value="{{ ($order->source_type ?? 'po') === 'fob'
+                      ? 'Stok FOB (Buyer)'
+                      : (($order->source_type ?? 'po') === 'mixed' ? 'Campuran (PO + FOB)' : 'Stok PO / Buyer') }}"
                    disabled>
           </div>
-          @if(($order->source_type ?? 'po') === 'fob')
+          @if(in_array($order->source_type ?? 'po', ['fob', 'mixed'], true))
             <div class="col-md-4">
               <label class="form-label">Buyer (FOB)</label>
               <input class="form-control" value="{{ optional($order->buyer)->name }}" disabled>
@@ -109,8 +111,10 @@
         <strong id="stocksTitle">
           @if(($order->source_type ?? 'po') === 'fob')
             Stok Tersedia (FOB / Buyer)
+          @elseif(($order->source_type ?? 'po') === 'mixed')
+            Stok Tersedia (PO + FOB)
           @else
-            Stok Tersedia (PO: {{ $po->po_number ?? '—' }})
+            Stok Tersedia (PO: {{ $po->po_number ?? '-' }})
           @endif
         </strong>
         <div class="d-flex gap-2">
@@ -226,54 +230,96 @@
   async function loadStocks(){
     resetTable();
 
-    // Vendor/Toko hanya untuk mode FOB
+    const isMixed = sourceType === 'mixed';
+    const isFobLike = sourceType === 'fob' || isMixed;
+
+    // Vendor/Toko hanya untuk mode FOB / Mixed
     if (stocksTable) {
-      stocksTable.classList.toggle('mode-fob', sourceType === 'fob');
-      stocksTable.classList.toggle('mode-po', sourceType !== 'fob');
+      stocksTable.classList.toggle('mode-fob', isFobLike);
+      stocksTable.classList.toggle('mode-po', sourceType === 'po');
     }
     if (thPoNumber) {
-      thPoNumber.textContent = sourceType === 'fob' ? 'No. PO (Target)' : 'No. PO (Stok)';
+      thPoNumber.textContent = sourceType === 'fob'
+        ? 'No. PO (Target)'
+        : (isMixed ? 'No. PO' : 'No. PO (Stok)');
     }
 
-    let res;
+    let items = [];
+
     if (sourceType === 'fob') {
       if (!urlBuyerStocks) {
         alert('URL stok FOB Buyer tidak tersedia.');
         return;
       }
-      res = await fetch(urlBuyerStocks);
-    } else {
+      const res = await fetch(urlBuyerStocks);
+      if (!res.ok) return alert('Gagal memuat stok');
+      const data  = await res.json();
+      items = data.items || [];
+      items.forEach(it => {
+        if (!it.source_type) it.source_type = 'fob';
+        if (targetPoNumber) it.po_number = targetPoNumber;
+      });
+    } else if (sourceType === 'po') {
       if (!urlPOStocks) {
         alert('URL stok PO tidak tersedia.');
         return;
       }
-      res = await fetch(urlPOStocks);
-    }
+      const res = await fetch(urlPOStocks);
+      if (!res.ok) return alert('Gagal memuat stok');
+      const data  = await res.json();
+      items = data.items || [];
+      items.forEach(it => {
+        if (!it.source_type) it.source_type = 'po';
+      });
+    } else {
+      if (!urlPOStocks || !urlBuyerStocks) {
+        alert('URL stok PO/FOB tidak tersedia.');
+        return;
+      }
+      const [poRes, fobRes] = await Promise.all([
+        fetch(urlPOStocks),
+        fetch(urlBuyerStocks),
+      ]);
 
-    if (!res.ok) return alert('Gagal memuat stok');
-    const data  = await res.json();
-    const items = data.items || [];
+      if (!poRes.ok || !fobRes.ok) return alert('Gagal memuat stok');
 
-    // Untuk mode FOB: tampilkan PO TARGET di kolom "No. PO (Stok)"
-    if (sourceType === 'fob' && targetPoNumber) {
-      items.forEach(it => { it.po_number = targetPoNumber; });
+      const poData = await poRes.json();
+      const fobData = await fobRes.json();
+
+      const poItems = (poData.items || []).map(it => {
+        if (!it.source_type) it.source_type = 'po';
+        return it;
+      });
+      const fobItems = (fobData.items || []).map(it => {
+        if (!it.source_type) it.source_type = 'fob';
+        if (targetPoNumber) it.po_number = targetPoNumber;
+        return it;
+      });
+
+      items = [...poItems, ...fobItems];
     }
 
     items.forEach((row, idx) => {
       const tr = document.createElement('tr');
-      const sourceLabel = row.source_label || row.supplier || row.buyer || '—';
+      const rowType = row.source_type || (row.buyer_id ? 'fob' : 'po');
+      const isFobRow = rowType === 'fob';
+      const poDisplay = isFobRow
+        ? (targetPoNumber || row.po_number || '-')
+        : (row.po_number || '-');
+      const sourceLabel = row.source_label || row.supplier || row.buyer || '-';
+      const vendorDisplay = isFobRow && row.vendor_name ? row.vendor_name : '-';
 
       tr.innerHTML = `
         <td class="text-center">
           <input type="checkbox" class="chkRow">
           <input type="hidden" class="hidStockId">
         </td>
-        <td>${row.material_code ? row.material_code : '—'}</td>
+        <td>${row.material_code ? row.material_code : '-'}</td>
         <td class="fw-semibold">${row.material_name}</td>
         <td>${row.unit ?? ''}</td>
         <td class="text-start">${sourceLabel}</td>
-        <td class="text-start">${row.vendor_name ? row.vendor_name : '—'}</td>
-        <td class="text-center">${row.po_number ?? '—'}</td>
+        <td class="text-start">${vendorDisplay}</td>
+        <td class="text-center">${poDisplay}</td>
         <td class="text-end availCell">${formatNumber(row.available)}</td>
         <td>
           <input type="number" min="0" step="0.0001" class="form-control text-end qtyInput" placeholder="0" disabled data-avail="${row.available}">
@@ -340,6 +386,7 @@
 
     updateSummary();
   }
+
 
   chkHeader.addEventListener('change', () => {
     tblBody.querySelectorAll('.chkRow').forEach(chk => {

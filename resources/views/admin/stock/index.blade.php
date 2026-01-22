@@ -89,7 +89,9 @@
         })
         ->map(function($rowsBySupplier) {
           return $rowsBySupplier->groupBy(function($row) {
-            $poNumber = optional($row->purchaseOrder)->po_number ?? 'Tanpa PO';
+            $poNumber = $row->purchase_order_id
+              ? (optional($row->purchaseOrder)->po_number ?? 'Tanpa PO')
+              : 'GLOBAL';
             return $poNumber;
           });
         });
@@ -226,6 +228,8 @@
                   <td>
                     @if($poId && $poNo)
                       <a href="{{ route('admin.purchase-orders.show', $poId) }}">{{ $poNo }}</a>
+                    @elseif(is_null($st->purchase_order_id))
+                      GLOBAL
                     @else
                       —
                     @endif

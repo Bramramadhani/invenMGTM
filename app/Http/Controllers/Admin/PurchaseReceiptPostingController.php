@@ -66,9 +66,22 @@ class PurchaseReceiptPostingController extends Controller
             // Over-receive diperbolehkan; stok dan actual_arrived_quantity
             // tetap dihitung berdasarkan semua receipt POSTED.
 
+            // Total yang sudah POSTED per item (sebelum receipt ini)
+            $ids = $receipt->items->pluck('purchase_order_item_id')->all();
+            $ordered = $po->items->pluck('ordered_quantity', 'id');
+
+            $posted = DB::table('purchase_receipt_items as pri')
+                ->join('purchase_receipts as pr', 'pr.id', '=', 'pri.purchase_receipt_id')
+                ->where('pr.status', 'posted')
+                ->whereIn('pri.purchase_order_item_id', $ids)
+                ->groupBy('pri.purchase_order_item_id')
+                ->selectRaw('pri.purchase_order_item_id, SUM(pri.received_quantity) AS received_total')
+                ->pluck('received_total', 'purchase_order_item_id');
+
             // 1) Tambah stok per item (per-PO) + movement IN pada tanggal penerimaan
             foreach ($receipt->items as $it) {
-                if ((float)$it->received_quantity <= 0) {
+                $receivedQty = (float) $it->received_quantity;
+                if ($receivedQty <= 0) {
                     continue;
                 }
 
@@ -82,6 +95,11 @@ class PurchaseReceiptPostingController extends Controller
                 $materialName = $it->material_name;
                 $unit         = $it->unit;
 
+                $itemId    = (int) $it->purchase_order_item_id;
+                $remaining = max(0, (float) ($ordered[$itemId] ?? 0) - (float) ($posted[$itemId] ?? 0));
+                $qtyToPo   = min($receivedQty, $remaining);
+                $qtyToGlob = $receivedQty - $qtyToPo;
+
                 /**
                  * Baris stok per-PO:
                  *   1 baris = 1 supplier + 1 PO + 1 nama material + 1 unit
@@ -91,53 +109,100 @@ class PurchaseReceiptPostingController extends Controller
                  *   (kemungkinan: supplier_id, material_name, unit, purchase_order_id)
                  */
 
-                $stock = Stock::where('purchase_order_id', $poId)
-                    ->where('supplier_id', $supplierId)
-                    ->where('material_name', $materialName)
-                    ->where('unit', $unit)
-                    ->lockForUpdate()
-                    ->first();
-
-                if (!$stock) {
-                    // Belum ada baris stok untuk kombinasi ini → buat baru
-                    $stock = new Stock();
-                    $stock->purchase_order_id = $poId;
-                    $stock->supplier_id       = $supplierId;
-                    $stock->material_name     = $materialName;
-                    $stock->unit              = $unit;
-                    $stock->quantity          = 0;
+                if ($qtyToPo > 0) {
+                    $stock = Stock::where('purchase_order_id', $poId)
+                        ->where('supplier_id', $supplierId)
+                        ->where('material_name', $materialName)
+                        ->where('unit', $unit)
+                        ->lockForUpdate()
+                        ->first();
+                    if (!$stock) {
+                        // Belum ada baris stok untuk kombinasi ini -> buat baru
+                        $stock = new Stock();
+                        $stock->purchase_order_id = $poId;
+                        $stock->supplier_id       = $supplierId;
+                        $stock->material_name     = $materialName;
+                        $stock->unit              = $unit;
+                        $stock->quantity          = 0;
+                    }
+                    $stock->material_code   = $materialCode;
+                    $stock->last_po_id      = $poId;
+                    $stock->last_po_number  = $poNumber;
+                    $oldQty          = (float) $stock->quantity;
+                    $stock->quantity = $oldQty + $qtyToPo;
+                    $stock->save();
+                    // History: penerimaan barang dari PO (pembelian)
+                    StockHistory::recordChange(
+                        $stock,
+                        $oldQty,
+                        (float) $stock->quantity,
+                        StockHistory::TYPE_PO_RECEIVE,
+                        'Posting receipt ' . ($receipt->receipt_number ?? $receipt->id),
+                        Auth::id()
+                    );
+                    // Movement IN pada tanggal penerimaan (bukan now)
+                    StockMovement::create([
+                        'stock_id'      => $stock->id,
+                        'supplier_id'   => $stock->supplier_id,
+                        'material_name' => $stock->material_name,
+                        'unit'          => $stock->unit,
+                        'direction'     => StockMovement::DIR_IN,
+                        'quantity'      => $qtyToPo,
+                        'notes'         => $it->notes,
+                        'po_number'     => $poNumber,
+                        'moved_at'      => $receipt->receipt_date->startOfDay(),
+                    ]);
                 }
 
-                $stock->material_code   = $materialCode;
-                $stock->last_po_id      = $poId;
-                $stock->last_po_number  = $poNumber;
+                if ($qtyToGlob > 0) {
+                    $globalStock = Stock::whereNull('purchase_order_id')
+                        ->whereNull('buyer_id')
+                        ->where('supplier_id', $supplierId)
+                        ->where('material_name', $materialName)
+                        ->where('unit', $unit)
+                        ->lockForUpdate()
+                        ->first();
 
-                $oldQty          = (float) $stock->quantity;
-                $stock->quantity = $oldQty + (float) $it->received_quantity;
-                $stock->save();
+                    if (!$globalStock) {
+                        $globalStock = new Stock();
+                        $globalStock->purchase_order_id = null;
+                        $globalStock->supplier_id       = $supplierId;
+                        $globalStock->material_name     = $materialName;
+                        $globalStock->unit              = $unit;
+                        $globalStock->quantity          = 0;
+                    }
 
-                // History: penerimaan barang dari PO (pembelian)
-                StockHistory::recordChange(
-                    $stock,
-                    $oldQty,
-                    (float) $stock->quantity,
-                    StockHistory::TYPE_PO_RECEIVE,
-                    'Posting receipt ' . ($receipt->receipt_number ?? $receipt->id),
-                    Auth::id()
-                );
+                    $globalStock->material_code  = $materialCode;
+                    $globalStock->last_po_id     = $poId;
+                    $globalStock->last_po_number = $poNumber;
 
-                // Movement IN pada tanggal penerimaan (bukan now)
-                StockMovement::create([
-                    'stock_id'      => $stock->id,
-                    'supplier_id'   => $stock->supplier_id,
-                    'material_name' => $stock->material_name,
-                    'unit'          => $stock->unit,
-                    'direction'     => StockMovement::DIR_IN,
-                    'quantity'      => (float) $it->received_quantity,
-                    'notes'         => $it->notes,
-                    'po_number'     => $poNumber,
-                    'moved_at'      => $receipt->receipt_date->startOfDay(),
-                ]);
+                    $oldGlob = (float) $globalStock->quantity;
+                    $globalStock->quantity = $oldGlob + $qtyToGlob;
+                    $globalStock->save();
+
+                    StockHistory::recordChange(
+                        $globalStock,
+                        $oldGlob,
+                        (float) $globalStock->quantity,
+                        StockHistory::TYPE_PO_RECEIVE,
+                        'Over-receive ke stok global ' . ($receipt->receipt_number ?? $receipt->id),
+                        Auth::id()
+                    );
+
+                    StockMovement::create([
+                        'stock_id'      => $globalStock->id,
+                        'supplier_id'   => $globalStock->supplier_id,
+                        'material_name' => $globalStock->material_name,
+                        'unit'          => $globalStock->unit,
+                        'direction'     => StockMovement::DIR_IN,
+                        'quantity'      => $qtyToGlob,
+                        'notes'         => $it->notes ? 'Global: ' . $it->notes : 'Global stock over-receive',
+                        'po_number'     => $poNumber,
+                        'moved_at'      => $receipt->receipt_date->startOfDay(),
+                    ]);
+                }
+
+                $posted[$itemId] = (float) ($posted[$itemId] ?? 0) + $qtyToPo;
             }
 
             // 2) Rekap actual_arrived_quantity dari POSTED saja

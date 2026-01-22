@@ -140,9 +140,16 @@ class OrderController extends Controller
     public function poStocks(PurchaseOrder $purchaseOrder)
     {
         $rows = Stock::with(['supplier', 'buyer'])
-            ->where('purchase_order_id', $purchaseOrder->id)
             ->whereNull('buyer_id') // stok normal saja
             ->where('quantity', '>', 0)
+            ->where(function ($q) use ($purchaseOrder) {
+                $q->where('purchase_order_id', $purchaseOrder->id)
+                  ->orWhere(function ($qq) use ($purchaseOrder) {
+                      $qq->whereNull('purchase_order_id')
+                         ->where('supplier_id', $purchaseOrder->supplier_id);
+                  });
+            })
+            ->orderByRaw('purchase_order_id is null')
             ->orderBy('material_name')
             ->orderBy('unit')
             ->get();
@@ -159,6 +166,7 @@ class OrderController extends Controller
                 $sourceLabel   = $supplierName ?: ($buyerName ?: '-');
                 $displayUnit   = $this->displayUnit($s->unit);
                 $availableBase = $this->toBaseQty((float) $s->quantity, $s->unit);
+                $isGlobal      = $s->purchase_order_id === null;
 
                 return [
                     'stock_id'      => $s->id,
@@ -168,9 +176,12 @@ class OrderController extends Controller
                     'vendor_name'   => $s->vendor_name,
                     'supplier'      => $supplierName,
                     'buyer'         => $buyerName,
+                    'buyer_id'      => $s->buyer_id,
                     'source_label'  => $sourceLabel,
-                    'po_number'     => $purchaseOrder->po_number,
+                    'source_type'   => 'po',
+                    'po_number'     => $isGlobal ? 'GLOBAL' : $purchaseOrder->po_number,
                     'available'     => $availableBase,
+                    'is_global'     => $isGlobal,
                 ];
             }),
         ]);
@@ -208,7 +219,9 @@ class OrderController extends Controller
                     'vendor_name'   => $s->vendor_name,
                     'supplier'      => $supplierName,
                     'buyer'         => $buyerName,
+                    'buyer_id'      => $s->buyer_id,
                     'source_label'  => $sourceLabel,
+                    'source_type'   => 'fob',
                     'po_number'     => optional($s->purchaseOrder)->po_number,
                     'available'     => $availableBase,
                 ];
@@ -270,7 +283,7 @@ class OrderController extends Controller
         }
 
         $data = $request->validate([
-            'source_type'             => ['required', 'in:po,fob'],
+            'source_type'             => ['required', 'in:po,fob,mixed'],
             'buyer_id'                => ['nullable', 'integer', 'exists:buyers,id'],
 
             'production_name'         => ['required', 'string', 'max:255'],
@@ -292,9 +305,9 @@ class OrderController extends Controller
             'buyer_id'                => 'Buyer',
         ]);
 
-        // Kalau mode FOB, buyer wajib diisi
+        // Kalau mode FOB / Mixed, buyer wajib diisi
         $sourceType = $data['source_type'] ?? 'po';
-        if ($sourceType === 'fob' && empty($data['buyer_id'])) {
+        if (in_array($sourceType, ['fob', 'mixed'], true) && empty($data['buyer_id'])) {
             throw ValidationException::withMessages([
                 'buyer_id' => ['Buyer wajib dipilih untuk permintaan dari stok FOB.'],
             ]);
@@ -331,7 +344,7 @@ class OrderController extends Controller
                 'supply_chain_head_name'  => $data['supply_chain_head_name'] ?? null,
                 'purchase_order_style_id' => $style->id,
                 'source_type'             => $sourceType,
-                'buyer_id'                => $sourceType === 'fob' ? $buyerId : null,
+                'buyer_id'                => in_array($sourceType, ['fob', 'mixed'], true) ? $buyerId : null,
                 'created_at'              => $now,
                 'updated_at'              => $now,
             ]);
@@ -390,13 +403,34 @@ class OrderController extends Controller
                             'items' => ["Item {$stock->material_name} bukan dari PO {$stylePoNo}. Harus satu PO dengan Style yang dipilih."],
                         ]);
                     }
-                } else {
+                } elseif ($sourceType === 'fob') {
                     // Mode FOB: wajib stok FOB dari buyer yang dipilih
                     if (empty($stock->buyer_id) || ($buyerId && (int) $stock->buyer_id !== (int) $buyerId)) {
-                        // Ada item "nyasar" (mis. sisa dari tab lain) → abaikan saja, jangan bikin seluruh permintaan gagal
+                        // Ada item "nyasar" (mis. sisa dari tab lain) -> abaikan saja, jangan bikin seluruh permintaan gagal
                         continue;
                     }
                     // purchase_order_id stok FOB boleh null / beda PO, karena "target"-nya diwakili Style PO
+                } else {
+                    // Mode Mixed: boleh gabung stok PO/Global + FOB (1 buyer)
+                    if (!is_null($stock->buyer_id)) {
+                        if (!$buyerId || (int) $stock->buyer_id !== (int) $buyerId) {
+                            throw ValidationException::withMessages([
+                                'items' => ["Item {$stock->material_name} bukan stok FOB dari Buyer yang sama dengan header Order."],
+                            ]);
+                        }
+                    } else {
+                        if (!empty($stock->purchase_order_id) && $stylePoId && $stock->purchase_order_id !== $stylePoId) {
+                            throw ValidationException::withMessages([
+                                'items' => ["Item {$stock->material_name} bukan dari PO {$stylePoNo}. Harus satu PO dengan Style yang dipilih."],
+                            ]);
+                        }
+
+                        if (empty($stock->purchase_order_id) && $stylePo && (int) $stock->supplier_id !== (int) $stylePo->supplier_id) {
+                            throw ValidationException::withMessages([
+                                'items' => ["Item {$stock->material_name} bukan stok global untuk Buyer yang sama dengan PO."],
+                            ]);
+                        }
+                    }
                 }
 
                 // Validasi qty hanya untuk item yang benar-benar dipakai
@@ -577,6 +611,11 @@ class OrderController extends Controller
             if (!$style || !$po) {
                 throw ValidationException::withMessages(['order' => 'Order belum terkait PO/Style.']);
             }
+            if (in_array($sourceType, ['fob', 'mixed'], true) && empty($buyerId)) {
+                throw ValidationException::withMessages([
+                    'order' => 'Buyer belum diisi untuk permintaan FOB/Mixed.',
+                ]);
+            }
 
             // UPDATE header
             $order->update([
@@ -668,7 +707,7 @@ class OrderController extends Controller
                             'items' => ["Item {$st->material_name} bukan dari PO {$po->po_number}."],
                         ]);
                     }
-                } else {
+                } elseif ($sourceType === 'fob') {
                     // Mode FOB
                     if (empty($st->buyer_id)) {
                         throw ValidationException::withMessages([
@@ -682,6 +721,27 @@ class OrderController extends Controller
                         ]);
                     }
                     // purchase_order_id stok FOB boleh beda / null
+                } else {
+                    // Mode Mixed: boleh gabung stok PO/Global + FOB
+                    if (!is_null($st->buyer_id)) {
+                        if (!$buyerId || $st->buyer_id !== $buyerId) {
+                            throw ValidationException::withMessages([
+                                'items' => ["Item {$st->material_name} bukan stok FOB dari Buyer yang sama dengan header Order."],
+                            ]);
+                        }
+                    } else {
+                        if (!empty($st->purchase_order_id) && $st->purchase_order_id !== $po->id) {
+                            throw ValidationException::withMessages([
+                                'items' => ["Item {$st->material_name} bukan dari PO {$po->po_number}."],
+                            ]);
+                        }
+
+                        if (empty($st->purchase_order_id) && (int) $st->supplier_id !== (int) $po->supplier_id) {
+                            throw ValidationException::withMessages([
+                                'items' => ["Item {$st->material_name} bukan stok global untuk Buyer yang sama dengan PO."],
+                            ]);
+                        }
+                    }
                 }
             }
 
