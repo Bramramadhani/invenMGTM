@@ -259,16 +259,24 @@ class PurchaseOrderController extends Controller
                     if ($hasPosted) {
                         // Hitung total yang sudah diterima (hanya POSTED)
                         $actualPosted = (float) $item->postedReceiptItems()->sum('received_quantity');
+                        $currentOrdered = (float) $item->ordered_quantity;
+                        $qtyChanged = abs($orderedQty - $currentOrdered) > 0.0000001;
 
-                        if ($orderedQty < $actualPosted) {
+                        // Legacy-safe:
+                        // Jika data lama sudah over-receive, jangan blok update item lain.
+                        // Blok hanya ketika user memang mencoba mengubah qty item posted
+                        // ke angka yang lebih kecil dari total posted.
+                        if ($qtyChanged && $orderedQty < $actualPosted) {
                             throw ValidationException::withMessages([
                                 'items' => "Qty PO untuk material '{$item->material_name}' tidak boleh kurang dari total yang sudah diterima ({$actualPosted}).",
                             ]);
                         }
 
                         // Hanya boleh ubah ordered_quantity, identitas barang jangan diubah
-                        $item->ordered_quantity = $orderedQty;
-                        $item->save();
+                        if ($qtyChanged) {
+                            $item->ordered_quantity = $orderedQty;
+                            $item->save();
+                        }
                     } else {
                         // Belum punya receipt POSTED → boleh ubah identitas & qty
                         $item->update([
