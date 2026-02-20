@@ -129,6 +129,7 @@
                   $totalPosted  = (float) ($it->total_posted_all ?? 0);
                   $current      = (float) $it->received_quantity;
                   $maxEditable  = (float) ($it->max_quantity_editable ?? $ordered);
+                  $inputMax     = max($maxEditable, $current);
                   $postedOther  = $totalPosted - $current;
                 @endphp
                 <tr>
@@ -149,7 +150,7 @@
                       type="number"
                       step="0.0001"
                       min="0"
-                      max="{{ $maxEditable }}"
+                      max="{{ $inputMax }}"
                       name="items[{{ $it->id }}][received_quantity]"
                       value="{{ old('items.'.$it->id.'.received_quantity', $current) }}"
                       class="form-control form-control-sm text-end"
