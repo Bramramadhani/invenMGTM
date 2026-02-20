@@ -3,7 +3,6 @@
 @section('content')
 <div class="container">
 
-  {{-- Flash & Error --}}
   @if (session('success'))
     <div class="alert alert-success">{{ session('success') }}</div>
   @endif
@@ -13,10 +12,13 @@
   @if ($errors->any())
     <div class="alert alert-danger">
       <ul class="mb-0">
-        @foreach ($errors->all() as $e) <li>{{ $e }}</li> @endforeach
+        @foreach ($errors->all() as $e)
+          <li>{{ $e }}</li>
+        @endforeach
       </ul>
     </div>
   @endif
+
 
   @php
     if (!function_exists('qty_fmt')) {
@@ -190,6 +192,40 @@
             required
           >{{ old('reason') }}</textarea>
         </div>
+
+        @if(!empty($canForceCorrection))
+          @php $forceChecked = old('force_correction') ? true : false; @endphp
+          <div class="border rounded p-3 mb-3 bg-light">
+            <div class="form-check mb-2">
+              <input
+                class="form-check-input"
+                type="checkbox"
+                name="force_correction"
+                id="force_correction"
+                value="1"
+                {{ $forceChecked ? 'checked' : '' }}
+              >
+              <label class="form-check-label fw-semibold" for="force_correction">
+                Force Correction (Super Admin Only)
+              </label>
+            </div>
+            <div class="small text-muted mb-2">
+              Gunakan hanya untuk koreksi salah input historis. Opsi ini mengizinkan stok menjadi minus sementara
+              dan semua perubahan akan dicatat pada audit log.
+            </div>
+            <div id="force-reason-wrapper" class="{{ $forceChecked ? '' : 'd-none' }}">
+              <label class="form-label mb-1">
+                Alasan Force Correction <span class="text-danger">*</span>
+              </label>
+              <textarea
+                name="force_reason"
+                rows="2"
+                class="form-control"
+              >{{ old('force_reason') }}</textarea>
+            </div>
+          </div>
+        @endif
+
         <div class="alert alert-warning mb-0 small">
           <strong>Perhatian:</strong> Setelah disimpan, stok gudang dan status PO akan mengikuti angka baru.
           Gunakan fitur ini hanya untuk membetulkan kesalahan input penerimaan, bukan untuk transaksi keluar.
@@ -207,4 +243,25 @@
     </div>
   </form>
 </div>
+
+@if(!empty($canForceCorrection))
+  <script>
+    (function () {
+      const toggle = document.getElementById('force_correction');
+      const wrapper = document.getElementById('force-reason-wrapper');
+      if (!toggle || !wrapper) return;
+
+      const sync = () => {
+        if (toggle.checked) {
+          wrapper.classList.remove('d-none');
+        } else {
+          wrapper.classList.add('d-none');
+        }
+      };
+
+      toggle.addEventListener('change', sync);
+      sync();
+    })();
+  </script>
+@endif
 @endsection

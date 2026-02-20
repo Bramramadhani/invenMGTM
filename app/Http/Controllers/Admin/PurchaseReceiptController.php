@@ -7,6 +7,7 @@ use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\PurchaseOrderReject;
 use App\Models\PurchaseReceipt;
+use App\Models\ReceiptCorrectionAudit;
 use App\Models\Stock;
 use App\Models\StockHistory;
 use App\Models\StockMovement;
@@ -19,6 +20,32 @@ use Barryvdh\DomPDF\Facade\Pdf as PDF;
 
 class PurchaseReceiptController extends Controller
 {
+    private function isSuperAdmin(): bool
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return false;
+        }
+
+        if (method_exists($user, 'hasAnyRole') && $user->hasAnyRole([
+            'super admin',
+            'Super Admin',
+            'SUPER ADMIN',
+        ])) {
+            return true;
+        }
+
+        if (method_exists($user, 'getRoleNames')) {
+            $roleNames = $user->getRoleNames()
+                ->map(fn ($name) => mb_strtolower((string) $name))
+                ->all();
+
+            return in_array('super admin', $roleNames, true);
+        }
+
+        return false;
+    }
+
     /**
      * Form buat draft penerimaan baru dari PO.
      */
@@ -317,8 +344,9 @@ class PurchaseReceiptController extends Controller
         });
 
         return view('admin.receipts.correction', [
-            'receipt' => $receipt,
-            'po'      => $po,
+            'receipt'             => $receipt,
+            'po'                  => $po,
+            'canForceCorrection'  => $this->isSuperAdmin(),
         ]);
     }
 
@@ -331,15 +359,35 @@ class PurchaseReceiptController extends Controller
             return back()->with('warning', 'Hanya receipt berstatus POSTED yang bisa dikoreksi.');
         }
 
+        $canForceCorrection = $this->isSuperAdmin();
+
         $data = $request->validate([
             'items'                     => ['required', 'array'],
             'items.*.received_quantity' => ['required', 'numeric', 'min:0'],
             'reason'                    => ['required', 'string', 'max:500'],
+            'force_correction'          => ['nullable', 'boolean'],
+            'force_reason'              => ['nullable', 'string', 'max:500', 'required_if:force_correction,1'],
         ]);
 
-        $reason = $data['reason'];
+        $reason          = trim((string) $data['reason']);
+        $forceCorrection = (bool) ($data['force_correction'] ?? false);
+        $forceReason     = isset($data['force_reason'])
+            ? trim((string) $data['force_reason'])
+            : null;
 
-        DB::transaction(function () use ($receipt, $data, $reason) {
+        if ($forceCorrection && !$canForceCorrection) {
+            throw ValidationException::withMessages([
+                'force_correction' => 'Hanya Super Admin yang boleh menggunakan Force Correction.',
+            ]);
+        }
+
+        if ($forceCorrection && $forceReason === '') {
+            throw ValidationException::withMessages([
+                'force_reason' => 'Alasan Force Correction wajib diisi.',
+            ]);
+        }
+
+        DB::transaction(function () use ($receipt, $data, $reason, $forceCorrection, $forceReason) {
             // Lock receipt + relasi penting
             $receipt = PurchaseReceipt::with(['items.orderItem', 'purchaseOrder.items'])
                 ->whereKey($receipt->id)
@@ -456,7 +504,7 @@ class PurchaseReceiptController extends Controller
                 $stockOld = (float) $stock->quantity;
                 $stockNew = $stockOld + $delta;
 
-                if ($stockNew < -0.0000001) {
+                if ($stockNew < -0.0000001 && !$forceCorrection) {
                     throw ValidationException::withMessages([
                         'items' => "Koreksi untuk '{$materialName}' akan membuat stok menjadi negatif. "
                             . "Stok saat ini: {$stockOld}, perubahan: {$delta}.",
@@ -467,6 +515,13 @@ class PurchaseReceiptController extends Controller
                 $stock->material_code = $materialCode;
                 $stock->quantity      = $stockNew;
                 $stock->save();
+
+                $movementReason = $reason;
+                if ($forceCorrection) {
+                    $movementReason .= $forceReason
+                        ? " [FORCE CORRECTION: {$forceReason}]"
+                        : ' [FORCE CORRECTION]';
+                }
 
                 // Movement koreksi (IN/OUT)
                 if (abs($delta) > 0.0000001) {
@@ -479,11 +534,19 @@ class PurchaseReceiptController extends Controller
                             ? StockMovement::DIR_IN
                             : StockMovement::DIR_OUT,
                         'quantity'      => abs($delta),
-                        'notes'         => 'Koreksi receipt ' . ($receipt->receipt_number ?? $receipt->id) . ' — ' . $reason,
+                        'notes'         => 'Koreksi receipt ' . ($receipt->receipt_number ?? $receipt->id) . ' - ' . $movementReason,
                         'po_number'     => $poNumber,
                         'moved_at'      => $receipt->receipt_date?->startOfDay() ?? now(),
                     ]);
                 }
+
+                $historyReason = 'Koreksi receipt: ' . $reason;
+                if ($forceCorrection) {
+                    $historyReason .= $forceReason
+                        ? ' [FORCE: ' . $forceReason . ']'
+                        : ' [FORCE]';
+                }
+                $historyReason = mb_substr($historyReason, 0, 255);
 
                 // History stok (koreksi penerimaan dari PO)
                 StockHistory::recordChange(
@@ -491,13 +554,33 @@ class PurchaseReceiptController extends Controller
                     $stockOld,
                     $stockNew,
                     StockHistory::TYPE_PO_CORRECTION,
-                    $reason,
+                    $historyReason,
                     Auth::id()
                 );
 
                 // Update qty di receipt item
                 $rcItem->received_quantity = $newQty;
                 $rcItem->save();
+
+                ReceiptCorrectionAudit::create([
+                    'purchase_receipt_id'      => $receipt->id,
+                    'purchase_receipt_item_id' => $rcItem->id,
+                    'purchase_order_id'        => $poId,
+                    'purchase_order_item_id'   => $poi->id,
+                    'stock_id'                 => $stock->id,
+                    'material_name'            => $materialName,
+                    'material_code'            => $materialCode,
+                    'unit'                     => $unit,
+                    'old_received_qty'         => $oldQty,
+                    'new_received_qty'         => $newQty,
+                    'delta_received_qty'       => $delta,
+                    'stock_old_qty'            => $stockOld,
+                    'stock_new_qty'            => $stockNew,
+                    'is_forced'                => $forceCorrection,
+                    'reason'                   => $reason,
+                    'force_reason'             => $forceReason,
+                    'created_by'               => Auth::id(),
+                ]);
             }
 
             // === Recalc actual_arrived_quantity per PurchaseOrderItem ===
@@ -544,6 +627,12 @@ class PurchaseReceiptController extends Controller
                 . ($user ? ' oleh ' . $user->name : '')
                 . ': ' . $reason;
 
+            if ($forceCorrection) {
+                $line .= $forceReason
+                    ? ' [FORCE CORRECTION: ' . $forceReason . ']'
+                    : ' [FORCE CORRECTION]';
+            }
+
             $existingNotes   = trim((string) $receipt->notes);
             $receipt->notes  = $existingNotes
                 ? $existingNotes . "\n" . $line
@@ -555,6 +644,9 @@ class PurchaseReceiptController extends Controller
 
         return redirect()
             ->route('admin.purchase-orders.show', $receipt->purchase_order_id)
-            ->with('success', 'Koreksi penerimaan berhasil disimpan. Stok & status PO sudah diperbarui.');
+            ->with('success', $forceCorrection
+                ? 'Force correction berhasil disimpan. Audit log telah dicatat.'
+                : 'Koreksi penerimaan berhasil disimpan. Stok & status PO sudah diperbarui.');
     }
 }
+
