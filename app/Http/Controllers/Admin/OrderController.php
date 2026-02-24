@@ -53,6 +53,11 @@ class OrderController extends Controller
         return $this->unitMultiplier($unit) > 1 ? 'PCS' : (string) $unit;
     }
 
+    private function resolveSupplierId(?int $stockSupplierId, ?int $targetPoSupplierId): ?int
+    {
+        return $stockSupplierId ?? $targetPoSupplierId;
+    }
+
     public function index(Request $request)
     {
         $q = trim((string) $request->get('q'));
@@ -327,6 +332,12 @@ class OrderController extends Controller
             $stylePoId = optional($stylePo)->id;
             $stylePoNo = optional($stylePo)->po_number;
 
+            if (!$stylePoId) {
+                throw ValidationException::withMessages([
+                    'purchase_order_style_id' => ['Style terpilih tidak terkait PO yang valid.'],
+                ]);
+            }
+
             // Nomor dokumen order
             $counter   = Order::lockForUpdate()->count() + 1;
             $orderName = 'REQ-' . $now->format('Ymd') . '-' . str_pad($counter, 4, '0', STR_PAD_LEFT);
@@ -383,10 +394,18 @@ class OrderController extends Controller
                 $qtyStock      = $this->fromBaseQty($qtyBase, $stock->unit);
                 $itemNote      = trim((string)($row['notes'] ?? ''));
 
-                // supplier_id untuk dokumen (boleh null untuk FOB)
-                $supplierIdForDocs     = $stock->supplier_id;
-                // supplier_id untuk log movement (fallback 0 jika null)
-                $supplierIdForMovement = (int) ($stock->supplier_id ?? 0);
+                $supplierIdForDocs = $this->resolveSupplierId(
+                    $stock->supplier_id,
+                    $stylePo?->supplier_id
+                );
+
+                if (!$supplierIdForDocs) {
+                    throw ValidationException::withMessages([
+                        'items' => ["Supplier untuk item {$stock->material_name} tidak ditemukan."],
+                    ]);
+                }
+
+                $supplierIdForMovement = (int) $supplierIdForDocs;
 
                 // Validasi jenis stok vs source_type
                 if ($sourceType === 'po') {
@@ -401,6 +420,13 @@ class OrderController extends Controller
                     if (!empty($stock->purchase_order_id) && $stylePoId && $stock->purchase_order_id !== $stylePoId) {
                         throw ValidationException::withMessages([
                             'items' => ["Item {$stock->material_name} bukan dari PO {$stylePoNo}. Harus satu PO dengan Style yang dipilih."],
+                        ]);
+                    }
+
+                    // stok global harus dari supplier yang sama dengan PO style
+                    if (empty($stock->purchase_order_id) && $stylePo && (int) $stock->supplier_id !== (int) $stylePo->supplier_id) {
+                        throw ValidationException::withMessages([
+                            'items' => ["Item {$stock->material_name} bukan stok global dari supplier yang sama dengan PO {$stylePoNo}."],
                         ]);
                     }
                 } elseif ($sourceType === 'fob') {
@@ -707,6 +733,12 @@ class OrderController extends Controller
                             'items' => ["Item {$st->material_name} bukan dari PO {$po->po_number}."],
                         ]);
                     }
+
+                    if (empty($st->purchase_order_id) && (int) $st->supplier_id !== (int) $po->supplier_id) {
+                        throw ValidationException::withMessages([
+                            'items' => ["Item {$st->material_name} bukan stok global dari supplier yang sama dengan PO {$po->po_number}."],
+                        ]);
+                    }
                 } elseif ($sourceType === 'fob') {
                     // Mode FOB
                     if (empty($st->buyer_id)) {
@@ -757,8 +789,18 @@ class OrderController extends Controller
                 $newQtyBase  = $this->toBaseQty((float) $newRow['qty_input'], $displayUnit);
                 $newNote     = $newRow['notes'];
 
-                $supplierIdForDocs     = $st->supplier_id;
-                $supplierIdForMovement = (int) ($st->supplier_id ?? 0);
+                $supplierIdForDocs = $this->resolveSupplierId(
+                    $st->supplier_id,
+                    $po?->supplier_id
+                );
+
+                if (!$supplierIdForDocs) {
+                    throw ValidationException::withMessages([
+                        'items' => ["Supplier untuk item {$st->material_name} tidak ditemukan."],
+                    ]);
+                }
+
+                $supplierIdForMovement = (int) $supplierIdForDocs;
 
                 if (isset($before[$sid])) {
                     // UPDATE item (ada sebelumnya)
@@ -784,6 +826,7 @@ class OrderController extends Controller
 
                     // Update OrderItem
                     OrderItem::whereKey($itemId)->update([
+                        'supplier_id' => $supplierIdForDocs,
                         'unit'       => $displayUnit,
                         'quantity'   => $newQtyBase,
                         'notes'      => $newNote ?: null,
@@ -794,6 +837,7 @@ class OrderController extends Controller
                     ProductionIssueItem::where('order_item_id', $itemId)
                         ->where('production_issue_id', $issue->id)
                         ->update([
+                            'supplier_id' => $supplierIdForDocs,
                             'unit'       => $displayUnit,
                             'quantity'   => $newQtyBase,
                             'notes'      => $newNote ?: null,
@@ -808,6 +852,7 @@ class OrderController extends Controller
 
                     if ($mov) {
                         $mov->update([
+                            'supplier_id' => $supplierIdForMovement,
                             'unit'       => $displayUnit,
                             'quantity'   => $newQtyBase,
                             'notes'      => $newNote ?: null,
