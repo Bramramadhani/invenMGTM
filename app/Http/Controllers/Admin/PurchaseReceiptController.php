@@ -46,6 +46,12 @@ class PurchaseReceiptController extends Controller
         return false;
     }
 
+    private function normalizeCode(?string $code): ?string
+    {
+        $code = strtoupper(trim((string) $code));
+        return $code !== '' ? $code : null;
+    }
+
     /**
      * Form buat draft penerimaan baru dari PO.
      */
@@ -464,80 +470,31 @@ class PurchaseReceiptController extends Controller
 
                 $ordered     = (float) $poi->ordered_quantity;
                 $otherPosted = (float) ($postedOther[$poi->id] ?? 0.0);
+                $delta       = $newQty - $oldQty;
 
-                // Validasi total jangan melebihi qty PO (koreksi tidak boleh tambah over lagi)
-                if ($otherPosted + $newQty > $ordered + 0.0000001) {
-                    throw ValidationException::withMessages([
-                        'items' => "Koreksi untuk '{$poi->material_name}' melebihi qty PO. "
-                            . "Ordered: {$ordered}, sudah diterima di receipt lain: {$otherPosted}, "
-                            . "qty baru di receipt ini: {$newQty}.",
-                    ]);
-                }
+                // Koreksi mengikuti split yang sama dengan saat posting:
+                // - max ordered masuk stok PO
+                // - sisanya masuk stok global
+                $totalBefore = $otherPosted + $oldQty;
+                $totalAfter  = $otherPosted + $newQty;
 
-                $delta = $newQty - $oldQty; // plus = tambah stok, minus = kurangi stok
+                $poBefore    = min($ordered, $totalBefore);
+                $poAfter     = min($ordered, $totalAfter);
+                $deltaPo     = $poAfter - $poBefore;
 
-                // Ambil / buat stok
+                $globBefore  = max(0.0, $totalBefore - $ordered);
+                $globAfter   = max(0.0, $totalAfter - $ordered);
+                $deltaGlobal = $globAfter - $globBefore;
+
                 $materialName = $rcItem->material_name;
                 $unit         = $rcItem->unit;
-
-                $materialCode = $poi && $poi->material_code !== null
-                    ? strtoupper(trim((string) $poi->material_code))
-                    : null;
-
-                /** @var \App\Models\Stock $stock */
-                $stock = Stock::where('purchase_order_id', $poId)
-                    ->where('supplier_id', $supplierId)
-                    ->where('material_name', $materialName)
-                    ->where('unit', $unit)
-                    ->lockForUpdate()
-                    ->first();
-
-                if (!$stock) {
-                    $stock = new Stock();
-                    $stock->purchase_order_id = $poId;
-                    $stock->supplier_id       = $supplierId;
-                    $stock->material_name     = $materialName;
-                    $stock->unit              = $unit;
-                    $stock->quantity          = 0.0;
-                }
-
-                $stockOld = (float) $stock->quantity;
-                $stockNew = $stockOld + $delta;
-
-                if ($stockNew < -0.0000001 && !$forceCorrection) {
-                    throw ValidationException::withMessages([
-                        'items' => "Koreksi untuk '{$materialName}' akan membuat stok menjadi negatif. "
-                            . "Stok saat ini: {$stockOld}, perubahan: {$delta}.",
-                    ]);
-                }
-
-                // Update stok
-                $stock->material_code = $materialCode;
-                $stock->quantity      = $stockNew;
-                $stock->save();
+                $materialCode = $this->normalizeCode($poi->material_code);
 
                 $movementReason = $reason;
                 if ($forceCorrection) {
                     $movementReason .= $forceReason
                         ? " [FORCE CORRECTION: {$forceReason}]"
                         : ' [FORCE CORRECTION]';
-                }
-
-                // Movement koreksi (IN/OUT)
-                if (abs($delta) > 0.0000001) {
-                    StockMovement::create([
-                        'stock_id'      => $stock->id,
-                        'supplier_id'   => $stock->supplier_id,
-                        'material_name' => $stock->material_name,
-                        'unit'          => $stock->unit,
-                        'direction'     => $delta > 0
-                            ? StockMovement::DIR_IN
-                            : StockMovement::DIR_OUT,
-                        'quantity'      => abs($delta),
-                        'notes'         => 'Koreksi receipt ' . ($receipt->receipt_number ?? $receipt->id) . ' - ' . $movementReason,
-                        'po_number'     => $poNumber,
-                        'moved_at'      => $receipt->receipt_date?->startOfDay() ?? now(),
-                    ]);
                 }
 
                 $historyReason = 'Koreksi receipt: ' . $reason;
@@ -548,15 +505,101 @@ class PurchaseReceiptController extends Controller
                 }
                 $historyReason = mb_substr($historyReason, 0, 255);
 
-                // History stok (koreksi penerimaan dari PO)
-                StockHistory::recordChange(
-                    $stock,
-                    $stockOld,
-                    $stockNew,
-                    StockHistory::TYPE_PO_CORRECTION,
+                $primaryStockId  = null;
+                $primaryStockOld = null;
+                $primaryStockNew = null;
+
+                $applyDelta = function (?int $targetPoId, float $deltaValue) use (
+                    $supplierId,
+                    $materialName,
+                    $materialCode,
+                    $unit,
+                    $forceCorrection,
+                    $movementReason,
                     $historyReason,
-                    Auth::id()
-                );
+                    $receipt,
+                    $poNumber,
+                    &$primaryStockId,
+                    &$primaryStockOld,
+                    &$primaryStockNew
+                ) {
+                    if (abs($deltaValue) < 0.0000001) {
+                        return;
+                    }
+
+                    $query = Stock::where('supplier_id', $supplierId)
+                        ->where('material_name', $materialName)
+                        ->where('unit', $unit);
+
+                    if ($targetPoId === null) {
+                        $query->whereNull('purchase_order_id')->whereNull('buyer_id');
+                    } else {
+                        $query->where('purchase_order_id', $targetPoId);
+                    }
+
+                    if ($materialCode) {
+                        $query->whereRaw('UPPER(TRIM(material_code)) = ?', [$materialCode]);
+                    } else {
+                        $query->whereNull('material_code');
+                    }
+
+                    /** @var \App\Models\Stock|null $stock */
+                    $stock = $query->lockForUpdate()->first();
+                    if (!$stock) {
+                        $stock = new Stock();
+                        $stock->purchase_order_id = $targetPoId;
+                        $stock->supplier_id       = $supplierId;
+                        $stock->buyer_id          = null;
+                        $stock->material_name     = $materialName;
+                        $stock->unit              = $unit;
+                        $stock->quantity          = 0.0;
+                    }
+
+                    $stockOld = (float) $stock->quantity;
+                    $stockNew = $stockOld + $deltaValue;
+
+                    if ($stockNew < -0.0000001 && !$forceCorrection) {
+                        $scope = $targetPoId === null ? 'stok global' : 'stok PO';
+                        throw ValidationException::withMessages([
+                            'items' => "Koreksi untuk '{$materialName}' membuat {$scope} menjadi negatif. "
+                                . "Stok saat ini: {$stockOld}, perubahan: {$deltaValue}.",
+                        ]);
+                    }
+
+                    $stock->material_code = $materialCode;
+                    $stock->quantity      = $stockNew;
+                    $stock->save();
+
+                    StockMovement::create([
+                        'stock_id'      => $stock->id,
+                        'supplier_id'   => $stock->supplier_id,
+                        'material_name' => $stock->material_name,
+                        'unit'          => $stock->unit,
+                        'direction'     => $deltaValue > 0 ? StockMovement::DIR_IN : StockMovement::DIR_OUT,
+                        'quantity'      => abs($deltaValue),
+                        'notes'         => 'Koreksi receipt ' . ($receipt->receipt_number ?? $receipt->id) . ' - ' . $movementReason,
+                        'po_number'     => $poNumber,
+                        'moved_at'      => $receipt->receipt_date?->startOfDay() ?? now(),
+                    ]);
+
+                    StockHistory::recordChange(
+                        $stock,
+                        $stockOld,
+                        $stockNew,
+                        StockHistory::TYPE_PO_CORRECTION,
+                        $historyReason,
+                        Auth::id()
+                    );
+
+                    if ($primaryStockId === null) {
+                        $primaryStockId  = $stock->id;
+                        $primaryStockOld = $stockOld;
+                        $primaryStockNew = $stockNew;
+                    }
+                };
+
+                $applyDelta($poId, $deltaPo);
+                $applyDelta(null, $deltaGlobal);
 
                 // Update qty di receipt item
                 $rcItem->received_quantity = $newQty;
@@ -567,15 +610,15 @@ class PurchaseReceiptController extends Controller
                     'purchase_receipt_item_id' => $rcItem->id,
                     'purchase_order_id'        => $poId,
                     'purchase_order_item_id'   => $poi->id,
-                    'stock_id'                 => $stock->id,
+                    'stock_id'                 => $primaryStockId,
                     'material_name'            => $materialName,
                     'material_code'            => $materialCode,
                     'unit'                     => $unit,
                     'old_received_qty'         => $oldQty,
                     'new_received_qty'         => $newQty,
                     'delta_received_qty'       => $delta,
-                    'stock_old_qty'            => $stockOld,
-                    'stock_new_qty'            => $stockNew,
+                    'stock_old_qty'            => $primaryStockOld,
+                    'stock_new_qty'            => $primaryStockNew,
                     'is_forced'                => $forceCorrection,
                     'reason'                   => $reason,
                     'force_reason'             => $forceReason,

@@ -7,6 +7,8 @@ use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\PurchaseOrderReject;
 use App\Models\Stock;
+use App\Models\StockHistory;
+use App\Models\StockMovement;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +16,12 @@ use Illuminate\Support\Facades\Log;
 
 class PurchaseOrderRejectController extends Controller
 {
+    private function normalizeCode(?string $code): ?string
+    {
+        $code = strtoupper(trim((string) $code));
+        return $code !== '' ? $code : null;
+    }
+
     /**
      * Menyimpan data reject untuk beberapa item sekaligus dari form global.
      */
@@ -52,18 +60,21 @@ class PurchaseOrderRejectController extends Controller
 
                     // Cari stok berdasarkan PO dan material
                     $stock = null;
+                    $materialCode = $this->normalizeCode($item->material_code);
 
-                    if (!empty($item->material_code)) {
+                    if ($materialCode) {
                         $stock = Stock::where('purchase_order_id', $purchaseOrder->id)
-                            ->whereRaw('UPPER(material_code) = ?', [strtoupper(trim($item->material_code))])
+                            ->where('supplier_id', $purchaseOrder->supplier_id ?? null)
+                            ->whereRaw('UPPER(TRIM(material_code)) = ?', [$materialCode])
+                            ->whereRaw('LOWER(unit) = ?', [strtolower(trim((string) $item->unit))])
                             ->lockForUpdate()
                             ->first();
-                    }
-
-                    if (!$stock) {
+                    } else {
                         $stock = Stock::where('purchase_order_id', $purchaseOrder->id)
+                            ->where('supplier_id', $purchaseOrder->supplier_id ?? null)
                             ->whereRaw('LOWER(material_name) = ?', [strtolower(trim($item->material_name))])
                             ->whereRaw('LOWER(unit) = ?', [strtolower(trim($item->unit))])
+                            ->whereNull('material_code')
                             ->lockForUpdate()
                             ->first();
                     }
@@ -73,7 +84,7 @@ class PurchaseOrderRejectController extends Controller
                             'purchase_order_id' => $purchaseOrder->id,
                             'supplier_id'       => $purchaseOrder->supplier_id ?? null,
                             'material_name'     => $item->material_name,
-                            'material_code'     => $item->material_code,
+                            'material_code'     => $materialCode,
                             'unit'             => $item->unit,
                             'quantity'         => 0,
                             'last_po_id'       => $purchaseOrder->id,
@@ -84,16 +95,58 @@ class PurchaseOrderRejectController extends Controller
 
                     $remainingQty = $qty;
                     $stockIdForReject = $stock->id;
+                    $userId = Auth::id();
+
+                    $deductStock = function (Stock $targetStock, float $deductQty, string $movementNotes) use ($purchaseOrder, $userId) {
+                        if ($deductQty <= 0) {
+                            return;
+                        }
+
+                        $oldQty = (float) $targetStock->quantity;
+                        $newQty = $oldQty - $deductQty;
+
+                        if ($newQty < -0.0000001) {
+                            throw new \RuntimeException("Stok {$targetStock->material_name} tidak cukup untuk reject.");
+                        }
+
+                        $targetStock->update([
+                            'quantity'       => $newQty,
+                            'last_po_id'     => $purchaseOrder->id,
+                            'last_po_number' => $purchaseOrder->po_number,
+                        ]);
+
+                        StockHistory::recordChange(
+                            $targetStock,
+                            $oldQty,
+                            $newQty,
+                            StockHistory::TYPE_MANUAL_CORRECTION,
+                            $movementNotes,
+                            $userId
+                        );
+
+                        StockMovement::create([
+                            'stock_id'           => $targetStock->id,
+                            'supplier_id'        => $targetStock->supplier_id,
+                            'purchase_order_id'  => $targetStock->purchase_order_id,
+                            'material_name'      => $targetStock->material_name,
+                            'unit'               => $targetStock->unit,
+                            'direction'          => StockMovement::DIR_OUT,
+                            'quantity'           => $deductQty,
+                            'notes'              => $movementNotes,
+                            'po_number'          => $purchaseOrder->po_number,
+                            'moved_at'           => now(),
+                        ]);
+                    };
 
                     $availablePo = (float) $stock->quantity;
                     if ($availablePo > 0) {
                         $takePo = min($availablePo, $remainingQty);
                         if ($takePo > 0) {
-                            $stock->decrement('quantity', $takePo);
-                            $stock->update([
-                                'last_po_id'     => $purchaseOrder->id,
-                                'last_po_number' => $purchaseOrder->po_number,
-                            ]);
+                            $deductStock(
+                                $stock,
+                                $takePo,
+                                "Reject item {$item->material_name} dari stok PO {$purchaseOrder->po_number}"
+                            );
                             $remainingQty -= $takePo;
                         }
                     }
@@ -102,21 +155,21 @@ class PurchaseOrderRejectController extends Controller
                         // Ambil dari stok global (over-receive)
                         $globalStock = null;
 
-                        if (!empty($item->material_code)) {
+                        if ($materialCode) {
                             $globalStock = Stock::whereNull('purchase_order_id')
                                 ->whereNull('buyer_id')
                                 ->where('supplier_id', $purchaseOrder->supplier_id ?? null)
-                                ->whereRaw('UPPER(material_code) = ?', [strtoupper(trim($item->material_code))])
+                                ->whereRaw('UPPER(TRIM(material_code)) = ?', [$materialCode])
+                                ->whereRaw('LOWER(unit) = ?', [strtolower(trim((string) $item->unit))])
                                 ->lockForUpdate()
                                 ->first();
-                        }
-
-                        if (!$globalStock) {
+                        } else {
                             $globalStock = Stock::whereNull('purchase_order_id')
                                 ->whereNull('buyer_id')
                                 ->where('supplier_id', $purchaseOrder->supplier_id ?? null)
                                 ->whereRaw('LOWER(material_name) = ?', [strtolower(trim($item->material_name))])
                                 ->whereRaw('LOWER(unit) = ?', [strtolower(trim($item->unit))])
+                                ->whereNull('material_code')
                                 ->lockForUpdate()
                                 ->first();
                         }
@@ -126,11 +179,11 @@ class PurchaseOrderRejectController extends Controller
                             throw new \Exception("Stok global tidak cukup untuk reject {$item->material_name} (tersedia {$availableGlobal})");
                         }
 
-                        $globalStock->decrement('quantity', $remainingQty);
-                        $globalStock->update([
-                            'last_po_id'     => $purchaseOrder->id,
-                            'last_po_number' => $purchaseOrder->po_number,
-                        ]);
+                        $deductStock(
+                            $globalStock,
+                            $remainingQty,
+                            "Reject item {$item->material_name} dari stok global (PO {$purchaseOrder->po_number})"
+                        );
 
                         if ($availablePo <= 0) {
                             $stockIdForReject = $globalStock->id;

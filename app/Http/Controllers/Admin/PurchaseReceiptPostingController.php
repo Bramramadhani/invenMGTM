@@ -23,6 +23,12 @@ use Illuminate\Support\Facades\DB;
 
 class PurchaseReceiptPostingController extends Controller
 {
+    private function normalizeCode(?string $code): ?string
+    {
+        $code = strtoupper(trim((string) $code));
+        return $code !== '' ? $code : null;
+    }
+
     public function post(PurchaseReceipt $receipt)
     {
         return DB::transaction(function () use ($receipt) {
@@ -88,9 +94,7 @@ class PurchaseReceiptPostingController extends Controller
                 // Ambil material_code dari PO Item yang terkait
                 $poi = $po->items->firstWhere('id', $it->purchase_order_item_id);
 
-                $materialCode = $poi && $poi->material_code !== null
-                    ? strtoupper(trim((string) $poi->material_code))
-                    : null;
+                $materialCode = $this->normalizeCode(optional($poi)->material_code);
 
                 $materialName = $it->material_name;
                 $unit         = $it->unit;
@@ -102,20 +106,26 @@ class PurchaseReceiptPostingController extends Controller
 
                 /**
                  * Baris stok per-PO:
-                 *   1 baris = 1 supplier + 1 PO + 1 nama material + 1 unit
+                 *   1 baris = 1 supplier + 1 PO + 1 nama material + 1 kode + 1 unit
                  *
                  * Di DB VPS kamu sudah ada unique index
                  *   stocks_unique_sup_mat_unit_po_v2
-                 *   (kemungkinan: supplier_id, material_name, unit, purchase_order_id)
+                 *   (kemungkinan: supplier_id, material_name, material_code, unit, purchase_order_id)
                  */
 
                 if ($qtyToPo > 0) {
-                    $stock = Stock::where('purchase_order_id', $poId)
+                    $stockQuery = Stock::where('purchase_order_id', $poId)
                         ->where('supplier_id', $supplierId)
                         ->where('material_name', $materialName)
-                        ->where('unit', $unit)
-                        ->lockForUpdate()
-                        ->first();
+                        ->where('unit', $unit);
+
+                    if ($materialCode) {
+                        $stockQuery->whereRaw('UPPER(TRIM(material_code)) = ?', [$materialCode]);
+                    } else {
+                        $stockQuery->whereNull('material_code');
+                    }
+
+                    $stock = $stockQuery->lockForUpdate()->first();
                     if (!$stock) {
                         // Belum ada baris stok untuk kombinasi ini -> buat baru
                         $stock = new Stock();
@@ -155,13 +165,19 @@ class PurchaseReceiptPostingController extends Controller
                 }
 
                 if ($qtyToGlob > 0) {
-                    $globalStock = Stock::whereNull('purchase_order_id')
+                    $globalQuery = Stock::whereNull('purchase_order_id')
                         ->whereNull('buyer_id')
                         ->where('supplier_id', $supplierId)
                         ->where('material_name', $materialName)
-                        ->where('unit', $unit)
-                        ->lockForUpdate()
-                        ->first();
+                        ->where('unit', $unit);
+
+                    if ($materialCode) {
+                        $globalQuery->whereRaw('UPPER(TRIM(material_code)) = ?', [$materialCode]);
+                    } else {
+                        $globalQuery->whereNull('material_code');
+                    }
+
+                    $globalStock = $globalQuery->lockForUpdate()->first();
 
                     if (!$globalStock) {
                         $globalStock = new Stock();

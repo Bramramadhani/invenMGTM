@@ -11,10 +11,37 @@ use App\Reports\Exports\FobPurchaseReportExport;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Maatwebsite\Excel\Facades\Excel;
 
 class FobStockController extends Controller
 {
+    private function normalizeLookupKey(string $value): string
+    {
+        return mb_strtoupper(trim($value));
+    }
+
+    private function findDuplicateFobStock(
+        int $buyerId,
+        string $materialName,
+        string $unit,
+        ?int $excludeStockId = null
+    ): ?Stock {
+        $query = Stock::query()
+            ->whereNotNull('buyer_id')
+            ->whereNull('supplier_id')
+            ->whereNull('purchase_order_id')
+            ->where('buyer_id', $buyerId)
+            ->whereRaw('UPPER(TRIM(material_name)) = ?', [$this->normalizeLookupKey($materialName)])
+            ->whereRaw('UPPER(TRIM(unit)) = ?', [$this->normalizeLookupKey($unit)]);
+
+        if ($excludeStockId) {
+            $query->where('id', '!=', $excludeStockId);
+        }
+
+        return $query->lockForUpdate()->first();
+    }
+
     /**
      * Daftar stok FOB
      */
@@ -96,26 +123,51 @@ class FobStockController extends Controller
             $unitPrice    = $multiplier > 1 ? $priceInput / $multiplier : $priceInput;
             $userId    = auth()->id();
             $reason    = $validatedData['reason'] ?? null;
+            $materialCode = trim((string) ($validatedData['material_code'] ?? '')) ?: null;
+            $buyerId = (int) $validatedData['buyer_id'];
 
-            // 1. Buat stok FOB baru
-            $stock = Stock::create([
-                'supplier_id'       => null, // stok FOB: biasanya tidak direct ke PO
-                'buyer_id'          => $validatedData['buyer_id'],
-                'purchase_order_id' => null,
-                'material_code'     => $validatedData['material_code'] ?? null,
-                'material_name'     => $validatedData['material_name'],
-                'unit'              => $validatedData['unit'],
-                'quantity'          => $qty,
-                'vendor_name'       => $validatedData['vendor_name'] ?? null,
-            ]);
+            // Serialize write per-buyer supaya tidak race membuat stok FOB duplikat
+            DB::table('buyers')->where('id', $buyerId)->lockForUpdate()->value('id');
+
+            $stock = $this->findDuplicateFobStock(
+                $buyerId,
+                $validatedData['material_name'],
+                $validatedData['unit']
+            );
+
+            $oldQty = 0.0;
+            if ($stock) {
+                $oldQty = (float) $stock->quantity;
+
+                $stock->quantity = $oldQty + $qty;
+                $stock->vendor_name = $validatedData['vendor_name'] ?? $stock->vendor_name;
+
+                if ($materialCode && empty($stock->material_code)) {
+                    $stock->material_code = $materialCode;
+                }
+
+                $stock->save();
+            } else {
+                // 1. Buat stok FOB baru
+                $stock = Stock::create([
+                    'supplier_id'       => null, // stok FOB: biasanya tidak direct ke PO
+                    'buyer_id'          => $buyerId,
+                    'purchase_order_id' => null,
+                    'material_code'     => $materialCode,
+                    'material_name'     => $validatedData['material_name'],
+                    'unit'              => $validatedData['unit'],
+                    'quantity'          => $qty,
+                    'vendor_name'       => $validatedData['vendor_name'] ?? null,
+                ]);
+            }
 
             // 2. Catat history dengan harga (ini yang akan dipakai laporan pembelian)
             $totalPrice = $unitPrice * $qty;
 
             StockHistory::recordChange(
                 $stock,
-                0,
-                $qty,
+                $oldQty,
+                (float) $stock->quantity,
                 StockHistory::TYPE_FOB_CREATE,
                 $reason,
                 $userId,
@@ -203,14 +255,35 @@ class FobStockController extends Controller
             $afterQty  = (float) $validatedData['quantity'];
             $delta     = $afterQty - $beforeQty;
             $reason    = $validatedData['reason'] ?? null;
+            $targetBuyerId = (int) $validatedData['buyer_id'];
 
             $unitPrice = array_key_exists('unit_price', $validatedData) && $validatedData['unit_price'] !== null
                 ? (float) $validatedData['unit_price']
                 : null;
 
+            // Serialize write per-buyer untuk mencegah race duplicate saat edit
+            $lockBuyerIds = array_values(array_unique(array_filter([
+                (int) $fob_stock->buyer_id,
+                $targetBuyerId,
+            ])));
+            DB::table('buyers')->whereIn('id', $lockBuyerIds)->lockForUpdate()->get();
+
+            $duplicate = $this->findDuplicateFobStock(
+                $targetBuyerId,
+                $validatedData['material_name'],
+                $validatedData['unit'],
+                (int) $fob_stock->id
+            );
+
+            if ($duplicate) {
+                throw ValidationException::withMessages([
+                    'material_name' => 'Stok FOB untuk kombinasi Buyer + Material + Unit ini sudah ada. Ubah item yang sudah ada agar data tidak duplikat.',
+                ]);
+            }
+
             // Update data stok
             $fob_stock->update([
-                'buyer_id'      => $validatedData['buyer_id'],
+                'buyer_id'      => $targetBuyerId,
                 'vendor_name'   => $validatedData['vendor_name'] ?? null,
                 'material_code' => $validatedData['material_code'] ?? null,
                 'material_name' => $validatedData['material_name'],

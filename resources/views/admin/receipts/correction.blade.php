@@ -107,7 +107,7 @@
       <div class="card-header bg-light d-flex justify-content-between align-items-center">
         <strong>Detail Item Receipt yang Dikoreksi</strong>
         <span class="small text-muted">
-          Qty baru per baris tidak boleh melebihi batas maksimal (sesuai qty PO dikurangi penerimaan di receipt lain).
+          Over-receive tetap diperbolehkan. Kolom batas hanya referensi qty PO.
         </span>
       </div>
       <div class="card-body p-0">
@@ -121,7 +121,7 @@
                 <th class="text-end" style="width:110px;">Qty Order</th>
                 <th class="text-end" style="width:140px;">Diterima di Receipt Lain</th>
                 <th class="text-end" style="width:130px;">Qty Receipt Ini</th>
-                <th class="text-end" style="width:140px;">Maks. Qty Receipt Ini</th>
+                <th class="text-end" style="width:140px;">Batas Qty PO (Referensi)</th>
               </tr>
             </thead>
             <tbody>
@@ -152,7 +152,6 @@
                       type="number"
                       step="0.0001"
                       min="0"
-                      max="{{ $inputMax }}"
                       name="items[{{ $it->id }}][received_quantity]"
                       value="{{ old('items.'.$it->id.'.received_quantity', $current) }}"
                       class="form-control form-control-sm text-end"
