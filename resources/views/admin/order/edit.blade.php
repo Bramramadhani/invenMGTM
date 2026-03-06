@@ -406,10 +406,13 @@
   });
 
   form.addEventListener('submit', (e) => {
-    const picked = tblBody.querySelectorAll('.hidStockId[name^="items["]').length;
-    if (!picked) {
+    const positiveQty = Array.from(tblBody.querySelectorAll('.qtyInput[name^="items["]'))
+      .filter(q => Number((q.value || '0').toString().replace(',', '.')) > 0)
+      .length;
+
+    if (!positiveQty) {
       e.preventDefault();
-      alert('Pilih minimal satu item stok.');
+      alert('Minimal satu item harus memiliki Qty > 0.');
       return;
     }
     tblBody.querySelectorAll('.qtyInput[name^="items["]').forEach(q => clampQty(q));

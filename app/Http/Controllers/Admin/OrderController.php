@@ -613,7 +613,8 @@ class OrderController extends Controller
 
             'items'            => ['required', 'array', 'min:1'],
             'items.*.stock_id' => ['required', 'integer', 'exists:stocks,id'],
-            'items.*.quantity' => ['required', 'numeric', 'min:0.0001'],
+            // Edit order: qty 0 dianggap "hapus item" (untuk pindah dari Global ke PO).
+            'items.*.quantity' => ['required', 'numeric', 'min:0'],
             'items.*.notes'    => ['nullable', 'string', 'max:255'],
         ], [], [
             'items' => 'Item permintaan',
@@ -696,16 +697,32 @@ class OrderController extends Controller
                 $qty  = (float) $row['quantity'];
                 $note = trim((string) ($row['notes'] ?? ''));
 
-                if ($qty <= 0) {
-                    throw ValidationException::withMessages([
-                        "items.$i.quantity" => "Qty harus > 0",
-                    ]);
+                // Qty 0 saat edit dianggap item ini dihapus dari permintaan.
+                if ($qty <= 0.0000001) {
+                    continue;
                 }
 
-                $after[$sid] = [
-                    'qty_input' => $qty,
-                    'notes'     => $note,
-                ];
+                if (!isset($after[$sid])) {
+                    $after[$sid] = [
+                        'qty_input' => $qty,
+                        'notes'     => $note,
+                    ];
+                    continue;
+                }
+
+                // Safety untuk payload duplikat stock_id: gabungkan qty.
+                $after[$sid]['qty_input'] += $qty;
+
+                // Ambil catatan terbaru yang non-empty.
+                if ($note !== '') {
+                    $after[$sid]['notes'] = $note;
+                }
+            }
+
+            if (empty($after)) {
+                throw ValidationException::withMessages([
+                    'items' => 'Minimal satu item harus memiliki Qty > 0.',
+                ]);
             }
 
             // Lock semua stok yang terdampak
