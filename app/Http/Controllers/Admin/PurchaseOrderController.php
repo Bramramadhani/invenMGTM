@@ -7,6 +7,9 @@ use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\PurchaseOrderStyle;
 use App\Models\PurchaseReceipt;
+use App\Models\Stock;
+use App\Models\StockHistory;
+use App\Models\StockMovement;
 use App\Models\Supplier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +18,187 @@ use Illuminate\Validation\ValidationException;
 
 class PurchaseOrderController extends Controller
 {
+    private function normalizeCode(?string $code): ?string
+    {
+        $code = strtoupper(trim((string) $code));
+        return $code !== '' ? $code : null;
+    }
+
+    private function lockStockRow(
+        int $supplierId,
+        ?int $purchaseOrderId,
+        string $materialName,
+        ?string $materialCode,
+        string $unit
+    ): ?Stock {
+        $query = Stock::query()
+            ->where('supplier_id', $supplierId)
+            ->where('material_name', $materialName)
+            ->where('unit', $unit);
+
+        if ($purchaseOrderId === null) {
+            $query->whereNull('purchase_order_id')
+                ->whereNull('buyer_id');
+        } else {
+            $query->where('purchase_order_id', $purchaseOrderId);
+        }
+
+        if ($materialCode) {
+            $query->whereRaw('UPPER(TRIM(material_code)) = ?', [$materialCode]);
+        } else {
+            $query->whereNull('material_code');
+        }
+
+        return $query->lockForUpdate()->first();
+    }
+
+    private function applyStockDelta(Stock $stock, float $delta, string $poNumber, string $reason): void
+    {
+        if (abs($delta) < 0.0000001) {
+            return;
+        }
+
+        $oldQty = (float) $stock->quantity;
+        $newQty = $oldQty + $delta;
+
+        if ($newQty < -0.0000001) {
+            throw ValidationException::withMessages([
+                'items' => "Rebalancing stok membuat qty negatif untuk '{$stock->material_name}'.",
+            ]);
+        }
+
+        $stock->quantity = $newQty;
+        $stock->save();
+
+        StockHistory::recordChange(
+            $stock,
+            $oldQty,
+            $newQty,
+            StockHistory::TYPE_MANUAL_CORRECTION,
+            $reason,
+            auth()->id()
+        );
+
+        StockMovement::create([
+            'stock_id'      => $stock->id,
+            'supplier_id'   => $stock->supplier_id,
+            'material_name' => $stock->material_name,
+            'unit'          => $stock->unit,
+            'direction'     => $delta > 0 ? StockMovement::DIR_IN : StockMovement::DIR_OUT,
+            'quantity'      => abs($delta),
+            'notes'         => $reason,
+            'po_number'     => $poNumber,
+            'moved_at'      => now(),
+        ]);
+    }
+
+    private function rebalancePostedItemStocksOnOrderedQtyChange(
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderItem $item,
+        float $oldOrderedQty,
+        float $newOrderedQty,
+        float $postedQty
+    ): void {
+        $oldAllocatedToPo = min($oldOrderedQty, $postedQty);
+        $newAllocatedToPo = min($newOrderedQty, $postedQty);
+        $deltaAllocatedToPo = $newAllocatedToPo - $oldAllocatedToPo;
+
+        if (abs($deltaAllocatedToPo) < 0.0000001) {
+            return;
+        }
+
+        $supplierId   = (int) $purchaseOrder->supplier_id;
+        $poId         = (int) $purchaseOrder->id;
+        $poNumber     = (string) $purchaseOrder->po_number;
+        $materialName = trim((string) $item->material_name);
+        $materialCode = $this->normalizeCode($item->material_code);
+        $unit         = trim((string) $item->unit);
+
+        $poStock = $this->lockStockRow(
+            $supplierId,
+            $poId,
+            $materialName,
+            $materialCode,
+            $unit
+        );
+
+        if (!$poStock) {
+            $poStock = new Stock();
+            $poStock->purchase_order_id = $poId;
+            $poStock->supplier_id       = $supplierId;
+            $poStock->material_name     = $materialName;
+            $poStock->material_code     = $materialCode;
+            $poStock->unit              = $unit;
+            $poStock->quantity          = 0.0;
+            $poStock->last_po_id        = $poId;
+            $poStock->last_po_number    = $poNumber;
+            $poStock->save();
+        }
+
+        $globalStock = $this->lockStockRow(
+            $supplierId,
+            null,
+            $materialName,
+            $materialCode,
+            $unit
+        );
+
+        if (!$globalStock) {
+            $globalStock = new Stock();
+            $globalStock->purchase_order_id = null;
+            $globalStock->supplier_id       = $supplierId;
+            $globalStock->buyer_id          = null;
+            $globalStock->material_name     = $materialName;
+            $globalStock->material_code     = $materialCode;
+            $globalStock->unit              = $unit;
+            $globalStock->quantity          = 0.0;
+            $globalStock->last_po_id        = $poId;
+            $globalStock->last_po_number    = $poNumber;
+            $globalStock->save();
+        }
+
+        $reason = 'Rebalancing alokasi stok PO ' . $poNumber
+            . ' untuk ' . $materialName
+            . ': ordered ' . $oldOrderedQty . ' -> ' . $newOrderedQty;
+
+        if ($deltaAllocatedToPo > 0) {
+            $availableGlobal = (float) $globalStock->quantity;
+            if ($availableGlobal + 0.0000001 < $deltaAllocatedToPo) {
+                throw ValidationException::withMessages([
+                    'items' => "Stok global '{$materialName}' tidak cukup untuk dipindah ke PO. "
+                        . "Butuh {$deltaAllocatedToPo}, tersedia {$availableGlobal}.",
+                ]);
+            }
+
+            $poStock->last_po_id     = $poId;
+            $poStock->last_po_number = $poNumber;
+            $globalStock->last_po_id     = $poId;
+            $globalStock->last_po_number = $poNumber;
+
+            $this->applyStockDelta($poStock, $deltaAllocatedToPo, $poNumber, $reason);
+            $this->applyStockDelta($globalStock, -$deltaAllocatedToPo, $poNumber, $reason);
+
+            return;
+        }
+
+        $shiftToGlobal = abs($deltaAllocatedToPo);
+        $availablePo = (float) $poStock->quantity;
+        if ($availablePo + 0.0000001 < $shiftToGlobal) {
+            throw ValidationException::withMessages([
+                'items' => "Stok PO '{$materialName}' tidak cukup untuk dipindah ke global. "
+                    . "Butuh {$shiftToGlobal}, tersedia {$availablePo}.",
+            ]);
+        }
+
+        $poStock->last_po_id     = $poId;
+        $poStock->last_po_number = $poNumber;
+        $globalStock->last_po_id     = $poId;
+        $globalStock->last_po_number = $poNumber;
+
+        $this->applyStockDelta($poStock, -$shiftToGlobal, $poNumber, $reason);
+        $this->applyStockDelta($globalStock, $shiftToGlobal, $poNumber, $reason);
+    }
+
     public function index()
     {
         $purchaseOrders = PurchaseOrder::with(['supplier','items'])
@@ -193,6 +377,11 @@ class PurchaseOrderController extends Controller
         $data = $request->validate($rules);
 
         DB::transaction(function () use ($purchaseOrder, $data) {
+            DB::table('purchase_orders')
+                ->where('id', $purchaseOrder->id)
+                ->lockForUpdate()
+                ->value('id');
+
             $hasPostedReceipts = $purchaseOrder->hasPostedReceipt();
 
             // Kalau sudah ada RECEIPT POSTED → tidak boleh ganti supplier & no PO
@@ -262,18 +451,16 @@ class PurchaseOrderController extends Controller
                         $currentOrdered = (float) $item->ordered_quantity;
                         $qtyChanged = abs($orderedQty - $currentOrdered) > 0.0000001;
 
-                        // Legacy-safe:
-                        // Jika data lama sudah over-receive, jangan blok update item lain.
-                        // Blok hanya ketika user memang mencoba mengubah qty item posted
-                        // ke angka yang lebih kecil dari total posted.
-                        if ($qtyChanged && $orderedQty < $actualPosted) {
-                            throw ValidationException::withMessages([
-                                'items' => "Qty PO untuk material '{$item->material_name}' tidak boleh kurang dari total yang sudah diterima ({$actualPosted}).",
-                            ]);
-                        }
-
                         // Hanya boleh ubah ordered_quantity, identitas barang jangan diubah
                         if ($qtyChanged) {
+                            $this->rebalancePostedItemStocksOnOrderedQtyChange(
+                                $purchaseOrder,
+                                $item,
+                                $currentOrdered,
+                                $orderedQty,
+                                $actualPosted
+                            );
+
                             $item->ordered_quantity = $orderedQty;
                             $item->save();
                         }
